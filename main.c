@@ -161,6 +161,19 @@ int main(void) {
             DrawTexturePro(tex, src, dest, origin, (float)tiles[i].rotation, WHITE);
         }
 
+        if (!mouseOverToolbar) {
+            Texture2D tex = textures[currentTexIndex];
+            Rectangle src = { 0, 0, (float)tex.width, (float)tex.height };
+            Rectangle dest = {
+                (float)gridX * tileSize + (tileSize / 2.0f),
+                (float)gridY * tileSize + (tileSize / 2.0f),
+                (float)tileSize,
+                (float)tileSize
+            };
+            Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
+            DrawTexturePro(tex, src, dest, origin, 0.0f, Fade(WHITE, 0.5f));
+        }
+
         EndMode2D();
 
         DrawText(TextFormat("Tile Coord: (%d, %d)", gridX, gridY), 10, 10, 20, RAYWHITE);
