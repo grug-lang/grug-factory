@@ -59,7 +59,7 @@ The profiler outputs precise nanosecond-level telemetry:
 }
 ```
 
-Scripts in `/benchmarks/` automatically convert this JSON into SVG graphs to track LLVM/Actor performance regressions on every pull request.
+Scripts in `/benchmarks/` automatically convert this JSON into SVG graphs to track performance regressions on every pull request.
 
 ## Modding
 
