@@ -1,8 +1,8 @@
 # grug factory
 
-`grug-factory` is a Factorio-inspired top-down 2D simulation built to empirically measure how the actor model scales across multiple CPU cores using the [grug](https://github.com/grug-lang/grug) embedded programming language.
+`grug factory` is a Factorio-inspired top-down 2D simulation built to empirically measure how the actor model scales across multiple CPU cores using the [grug](https://github.com/grug-lang/grug) embedded programming language.
 
-While `grug-bench` measures language and runtime performance, **`grug-factory` measures large-scale concurrent simulation performance.**
+While `grug-bench` measures language and runtime performance, **`grug factory` measures large-scale concurrent simulation performance.**
 
 The C engine provides generic primitives (spawning, message mailboxes, basic rendering). All actual game logic (furnaces, belts, inserters) is written entirely in hot-reloadable `.grug` scripts.
 
@@ -15,19 +15,16 @@ This repository answers key architecture questions for grug:
 
 ## Building
 
-Requires CMake, a C11 compiler, and Raylib.
-
 ```bash
 cmake -B build
-cmake --build build
 ```
 
 ### Interactive Mode
 
-Run the visual factory simulation to place machines, test blueprints (Ctrl+C/Ctrl+V), and observe the actor model working in real-time.
+Run the visual (Raylib) factory simulation to place machines, test blueprints (Ctrl+C/Ctrl+V), and observe the actor model working in real-time.
 
 ```bash
-./grug-factory
+cmake --build build --target run-grug-factory
 ```
 
 ### Headless Benchmark Mode
@@ -35,7 +32,7 @@ Run the visual factory simulation to place machines, test blueprints (Ctrl+C/Ctr
 Run the CI-ready headless benchmarking tool. This loads a `.factory` save file, runs it for `N` ticks across different thread counts, and outputs a `profiling.json` file.
 
 ```bash
-./grug-factory-bench --save ../saves/megafactory.factory --ticks 1000 --threads 1,2,4,8,16
+cmake --build build --target run-grug-factory --save ../saves/megafactory.factory --ticks 1000 --threads 1,2,4,8,16
 ```
 
 ## Profiling Output

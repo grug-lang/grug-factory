@@ -27,10 +27,16 @@ add_custom_target(
     COMMENT "Compiling grug-rs via Cargo..."
 )
 
-add_executable(grug_factory main.c)
+add_executable(grug-factory main.c)
 
-add_dependencies(grug_factory build_grug_rs)
+add_custom_target(run-grug-factory
+    COMMAND $<TARGET_FILE:grug-factory>
+    DEPENDS grug-factory
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
 
-target_include_directories(grug_factory PRIVATE ${GRUG_RS_SOURCE_DIR}/include)
+add_dependencies(grug-factory build_grug_rs)
 
-target_link_libraries(grug_factory PRIVATE raylib ${GRUG_RS_LIB} dl pthread m)
+target_include_directories(grug-factory PRIVATE ${GRUG_RS_SOURCE_DIR}/include)
+
+target_link_libraries(grug-factory PRIVATE raylib ${GRUG_RS_LIB} dl pthread m)
