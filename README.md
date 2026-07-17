@@ -13,7 +13,7 @@ This repository answers key architecture questions for grug:
 2. **Actor Overhead:** At what point does the scheduler's overhead (mailbox locking, context switching) dominate?
 3. **Data Ownership (Deep Copy vs. CoW):** Because actors cannot share mutable state, sending an item from an Inserter to a Furnace requires memory boundaries. We benchmark the cost of strictly deep-copying `List` and `Dict` payloads vs. using atomic Copy-on-Write (CoW).
 
-## Building
+## Configuring
 
 ```bash
 cmake -B build

@@ -7,7 +7,7 @@
 typedef struct {
     int x;
     int y;
-    int colorIdx;
+    int texIdx;
 } Tile;
 
 static double get_time_ms() {
@@ -33,12 +33,16 @@ int main(void) {
     SetTargetFPS(60);
     const int tileSize = 64;
 
+    Texture2D textures[10];
+    for (int i = 0; i < 10; i++) {
+        int num = (i == 9) ? 0 : i + 1;
+        textures[i] = LoadTexture(TextFormat("textures/tiles/%d.png", num));
+    }
+
     Tile* tiles = NULL;
     int tileCount = 0;
     int tileCapacity = 0;
-
-    Color palette[10] = { RED, ORANGE, YELLOW, GREEN, LIME, BLUE, SKYBLUE, PURPLE, PINK, BROWN };
-    int currentColorIndex = 0;
+    int currentTexIndex = 0;
 
     double logic_time = 0.0;
     double render_time = 0.0;
@@ -47,8 +51,8 @@ int main(void) {
         double frame_start = get_time_ms();
         float dt = GetFrameTime();
 
-        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i)) currentColorIndex = i;
-        if (IsKeyPressed(KEY_ZERO)) currentColorIndex = 9;
+        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i)) currentTexIndex = i;
+        if (IsKeyPressed(KEY_ZERO)) currentTexIndex = 9;
 
         float moveSpeed = 500.0f / camera.zoom * dt;
         if (IsKeyDown(KEY_W)) camera.target.y -= moveSpeed;
@@ -84,7 +88,7 @@ int main(void) {
                     tileCapacity = (tileCapacity == 0) ? 10 : tileCapacity * 2;
                     tiles = realloc(tiles, tileCapacity * sizeof(Tile));
                 }
-                tiles[tileCount++] = (Tile){ gridX, gridY, currentColorIndex };
+                tiles[tileCount++] = (Tile){ gridX, gridY, currentTexIndex };
             }
         }
 
@@ -117,7 +121,10 @@ int main(void) {
         for (int y = startY; y <= endY; y++) DrawLine(startX * tileSize, y * tileSize, endX * tileSize, y * tileSize, (Color){ 45, 45, 45, 255 });
 
         for (int i = 0; i < tileCount; i++) {
-            DrawRectangle(tiles[i].x * tileSize, tiles[i].y * tileSize, tileSize, tileSize, palette[tiles[i].colorIdx]);
+            Texture2D tex = textures[tiles[i].texIdx];
+            Rectangle src = { 0, 0, (float)tex.width, (float)tex.height };
+            Rectangle dest = { (float)tiles[i].x * tileSize, (float)tiles[i].y * tileSize, (float)tileSize, (float)tileSize };
+            DrawTexturePro(tex, src, dest, (Vector2){0, 0}, 0, WHITE);
         }
 
         EndMode2D();
@@ -128,8 +135,8 @@ int main(void) {
 
         const char* perf_text1 = TextFormat("Logic: %.3f ms", logic_time);
         const char* perf_text2 = TextFormat("Render: %.3f ms", render_time);
-        DrawText(perf_text1, screenWidth - MeasureText(perf_text1, 20) - 10, 10, 20, SKYBLUE);
-        DrawText(perf_text2, screenWidth - MeasureText(perf_text2, 20) - 10, 35, 20, SKYBLUE);
+        DrawText(perf_text1, screenWidth - MeasureText(perf_text1, 20) - 10, 10, 20, RAYWHITE);
+        DrawText(perf_text2, screenWidth - MeasureText(perf_text2, 20) - 10, 35, 20, RAYWHITE);
 
         int barW = 500;
         int barH = 50;
@@ -141,8 +148,8 @@ int main(void) {
             int itemSize = 40;
             int x = startXPos + 5 + (i * 49);
             int y = startYPos + 5;
-            DrawRectangle(x, y, itemSize, itemSize, palette[i]);
-            if (i == currentColorIndex) DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
+            DrawTexturePro(textures[i], (Rectangle){0, 0, (float)textures[i].width, (float)textures[i].height}, (Rectangle){(float)x, (float)y, (float)itemSize, (float)itemSize}, (Vector2){0,0}, 0, WHITE);
+            if (i == currentTexIndex) DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
         }
 
         EndDrawing();
@@ -150,6 +157,7 @@ int main(void) {
         render_time = get_time_ms() - input_end;
     }
 
+    for (int i = 0; i < 10; i++) UnloadTexture(textures[i]);
     free(tiles);
     CloseWindow();
 }
