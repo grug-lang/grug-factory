@@ -1,19 +1,27 @@
 #include "raylib.h"
-#include <stdlib.h> // For malloc/realloc
-#include <math.h>   // For floorf
+#include <stdlib.h> 
+#include <math.h>
+
+#include "grug.h"
 
 typedef struct {
-    int x; // Tile grid coordinate X
-    int y; // Tile grid coordinate Y
+    int x; 
+    int y; 
 } Tile;
 
 int main(void) {
+    // --- 0. Grug Integration Test ---
+    // Prove we can link against and call functions from the grug-rs static library
+    grug_default_settings();
+
+    // --- 1. Window Setup ---
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(0, 0, "grug-factory engine");
 
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
 
+    // 2. Initialize the 2D Camera
     Camera2D camera = { 0 };
     camera.target = (Vector2){ 0.0f, 0.0f };
     camera.offset = (Vector2){ screenWidth / 2.0f, screenHeight / 2.0f };
@@ -30,7 +38,7 @@ int main(void) {
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
-        // --- 1. Handle Input ---
+        // --- 3. Handle Input ---
         float moveSpeed = 500.0f / camera.zoom * dt;
         if (IsKeyDown(KEY_W)) camera.target.y -= moveSpeed;
         if (IsKeyDown(KEY_S)) camera.target.y += moveSpeed;
@@ -50,14 +58,12 @@ int main(void) {
             camera.target.y += (mouseWorldPos.y - mouseWorldPosNew.y);
         }
 
-        // --- 2. Tile Placement/Removal ---
+        // --- 4. Tile Placement/Removal ---
         Vector2 mouseWorld = GetScreenToWorld2D(GetMousePosition(), camera);
-        // Use floorf to correctly handle negative grid coordinates
         int gridX = (int)floorf(mouseWorld.x / tileSize);
         int gridY = (int)floorf(mouseWorld.y / tileSize);
 
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-            // Check for duplicates
             bool exists = false;
             for (int i = 0; i < tileCount; i++) {
                 if (tiles[i].x == gridX && tiles[i].y == gridY) { exists = true; break; }
@@ -74,7 +80,6 @@ int main(void) {
         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
             for (int i = 0; i < tileCount; i++) {
                 if (tiles[i].x == gridX && tiles[i].y == gridY) {
-                    // Swap with last element and shrink (Swap-and-pop)
                     tiles[i] = tiles[tileCount - 1];
                     tileCount--;
                     break;
@@ -82,7 +87,7 @@ int main(void) {
             }
         }
 
-        // --- 3. Draw Phase ---
+        // --- 5. Draw Phase ---
         BeginDrawing();
         ClearBackground((Color){ 20, 20, 20, 255 });
 
@@ -106,7 +111,7 @@ int main(void) {
 
         EndMode2D();
 
-        // UI Layer (Tile Coordinates)
+        // UI Layer
         DrawText(TextFormat("Tile Coord: (%d, %d)", gridX, gridY), 10, 10, 20, RAYWHITE);
         DrawText(TextFormat("Total Tiles: %d", tileCount), 10, 35, 20, GRAY);
         DrawText(TextFormat("Zoom: %.2fx", camera.zoom), 10, 60, 20, GRAY);

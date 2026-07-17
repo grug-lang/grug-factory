@@ -16,7 +16,6 @@ FetchContent_MakeAvailable(grug_rs)
 find_program(CARGO_COMMAND cargo REQUIRED)
 
 set(GRUG_RS_SOURCE_DIR ${grug_rs_SOURCE_DIR})
-
 set(GRUG_RS_LIB ${GRUG_RS_SOURCE_DIR}/target/release/libgruggers.a) 
 
 add_custom_target(
@@ -29,6 +28,8 @@ add_custom_target(
 
 add_executable(grug-factory main.c)
 
+target_compile_options(grug-factory PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
 add_custom_target(run-grug-factory
     COMMAND $<TARGET_FILE:grug-factory>
     DEPENDS grug-factory
@@ -37,6 +38,6 @@ add_custom_target(run-grug-factory
 
 add_dependencies(grug-factory build_grug_rs)
 
-target_include_directories(grug-factory PRIVATE ${GRUG_RS_SOURCE_DIR}/include)
+target_include_directories(grug-factory SYSTEM PRIVATE ${GRUG_RS_SOURCE_DIR}/include)
 
 target_link_libraries(grug-factory PRIVATE raylib ${GRUG_RS_LIB} dl pthread m)
