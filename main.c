@@ -7,6 +7,7 @@
 typedef struct {
     int x;
     int y;
+    int colorIdx;
 } Tile;
 
 static double get_time_ms() {
@@ -36,12 +37,18 @@ int main(void) {
     int tileCount = 0;
     int tileCapacity = 0;
 
+    Color palette[10] = { RED, ORANGE, YELLOW, GREEN, LIME, BLUE, SKYBLUE, PURPLE, PINK, BROWN };
+    int currentColorIndex = 0;
+
     double logic_time = 0.0;
     double render_time = 0.0;
 
     while (!WindowShouldClose()) {
         double frame_start = get_time_ms();
         float dt = GetFrameTime();
+
+        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i)) currentColorIndex = i;
+        if (IsKeyPressed(KEY_ZERO)) currentColorIndex = 9;
 
         float moveSpeed = 500.0f / camera.zoom * dt;
         if (IsKeyDown(KEY_W)) camera.target.y -= moveSpeed;
@@ -65,7 +72,9 @@ int main(void) {
         int gridX = (int)floorf(mouseWorld.x / tileSize);
         int gridY = (int)floorf(mouseWorld.y / tileSize);
 
-        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        bool mouseOverToolbar = (GetMouseY() > screenHeight - 70);
+
+        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             bool exists = false;
             for (int i = 0; i < tileCount; i++) {
                 if (tiles[i].x == gridX && tiles[i].y == gridY) { exists = true; break; }
@@ -75,7 +84,7 @@ int main(void) {
                     tileCapacity = (tileCapacity == 0) ? 10 : tileCapacity * 2;
                     tiles = realloc(tiles, tileCapacity * sizeof(Tile));
                 }
-                tiles[tileCount++] = (Tile){ gridX, gridY };
+                tiles[tileCount++] = (Tile){ gridX, gridY, currentColorIndex };
             }
         }
 
@@ -108,7 +117,7 @@ int main(void) {
         for (int y = startY; y <= endY; y++) DrawLine(startX * tileSize, y * tileSize, endX * tileSize, y * tileSize, (Color){ 45, 45, 45, 255 });
 
         for (int i = 0; i < tileCount; i++) {
-            DrawRectangle(tiles[i].x * tileSize, tiles[i].y * tileSize, tileSize, tileSize, RED);
+            DrawRectangle(tiles[i].x * tileSize, tiles[i].y * tileSize, tileSize, tileSize, palette[tiles[i].colorIdx]);
         }
 
         EndMode2D();
@@ -119,9 +128,22 @@ int main(void) {
 
         const char* perf_text1 = TextFormat("Logic: %.3f ms", logic_time);
         const char* perf_text2 = TextFormat("Render: %.3f ms", render_time);
-        
         DrawText(perf_text1, screenWidth - MeasureText(perf_text1, 20) - 10, 10, 20, SKYBLUE);
         DrawText(perf_text2, screenWidth - MeasureText(perf_text2, 20) - 10, 35, 20, SKYBLUE);
+
+        int barW = 500;
+        int barH = 50;
+        int startXPos = (screenWidth - barW) / 2;
+        int startYPos = screenHeight - barH - 10;
+
+        DrawRectangle(startXPos, startYPos, barW, barH, (Color){ 30, 30, 30, 255 });
+        for (int i = 0; i < 10; i++) {
+            int itemSize = 40;
+            int x = startXPos + 5 + (i * 49);
+            int y = startYPos + 5;
+            DrawRectangle(x, y, itemSize, itemSize, palette[i]);
+            if (i == currentColorIndex) DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
+        }
 
         EndDrawing();
         
