@@ -49,7 +49,7 @@ int main(void) {
     Tile* tiles = NULL;
     int tileCount = 0;
     int tileCapacity = 0;
-    int currentTexIndex = 0;
+    int currentTexIndex = -1;
 
     double logic_time = 0.0;
     double render_time = 0.0;
@@ -85,7 +85,7 @@ int main(void) {
 
         bool mouseOverToolbar = (GetMouseY() > screenHeight - 70);
 
-        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && currentTexIndex != -1) {
             bool exists = false;
             for (int i = 0; i < tileCount; i++) {
                 if (tiles[i].x == gridX && tiles[i].y == gridY) { exists = true; break; }
@@ -119,10 +119,14 @@ int main(void) {
         }
 
         if (IsKeyPressed(KEY_Q)) {
-            for (int i = 0; i < tileCount; i++) {
-                if (tiles[i].x == gridX && tiles[i].y == gridY) {
-                    currentTexIndex = tiles[i].texIdx;
-                    break;
+            if (currentTexIndex != -1) {
+                currentTexIndex = -1;
+            } else {
+                for (int i = 0; i < tileCount; i++) {
+                    if (tiles[i].x == gridX && tiles[i].y == gridY) {
+                        currentTexIndex = tiles[i].texIdx;
+                        break;
+                    }
                 }
             }
         }
@@ -161,7 +165,7 @@ int main(void) {
             DrawTexturePro(tex, src, dest, origin, (float)tiles[i].rotation, WHITE);
         }
 
-        if (!mouseOverToolbar) {
+        if (!mouseOverToolbar && currentTexIndex != -1) {
             Texture2D tex = textures[currentTexIndex];
             Rectangle src = { 0, 0, (float)tex.width, (float)tex.height };
             Rectangle dest = {
