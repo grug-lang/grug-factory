@@ -63,14 +63,10 @@ int main(void) {
     int tileCapacity = 0;
     int currentTexIndex = -1;
 
-    double logic_time = 0.0;
-    double render_time = 0.0;
-
     double last_time = get_time_ms();
     double accumulator = 0.0;
 
     while (!WindowShouldClose()) {
-        double frame_start = get_time_ms();
         float dt = GetFrameTime();
 
         double now = get_time_ms();
@@ -188,9 +184,6 @@ int main(void) {
             }
         }
 
-        double input_end = get_time_ms();
-        logic_time = input_end - frame_start;
-
         BeginDrawing();
         ClearBackground((Color){ 20, 20, 20, 255 });
 
@@ -246,10 +239,10 @@ int main(void) {
         DrawText(TextFormat("Total Tiles: %d", tileCount), 10, 35, 20, GRAY);
         DrawText(TextFormat("Zoom: %.2fx", camera.zoom), 10, 60, 20, GRAY);
 
-        const char* perf_text1 = TextFormat("Logic: %.3f ms", logic_time);
-        const char* perf_text2 = TextFormat("Render: %.3f ms", render_time);
-        DrawText(perf_text1, screenWidth - MeasureText(perf_text1, 20) - 10, 10, 20, RAYWHITE);
-        DrawText(perf_text2, screenWidth - MeasureText(perf_text2, 20) - 10, 35, 20, RAYWHITE);
+        float fps = (dt > 0.0f) ? (1.0f / dt) : 0.0f;
+        float ups = (dt > 0.0f) ? ((float)ticks_this_frame / dt) : 0.0f;
+        const char* perf_text = TextFormat("FPS/UPS = %.1f/%.1f", fps, ups);
+        DrawText(perf_text, screenWidth - MeasureText(perf_text, 20) - 10, 10, 20, RAYWHITE);
 
         int barW = 500;
         int barH = 50;
@@ -268,8 +261,6 @@ int main(void) {
         DrawTextureV(cursorTex, GetMousePosition(), WHITE);
 
         EndDrawing();
-
-        render_time = get_time_ms() - input_end;
     }
 
     for (int i = 0; i < 10; i++) UnloadTexture(textures[i]);
