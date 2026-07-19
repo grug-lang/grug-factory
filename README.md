@@ -10,6 +10,14 @@ cmake --build build
 build/grugtorio
 ```
 
+## Examples
+
+Every test serves as an example:
+
+```sh
+build/grugtorio --input-save tests/belt-zigzag/save.grugtorio.json
+```
+
 ### grugtorio options
 
 | Option                                 | Description                                 |
