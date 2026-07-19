@@ -76,7 +76,21 @@ static void DrawKinkedChevron(Vector2 a, Vector2 c, float kinkOffset, float thic
     DrawLineEx(mid, c, thickness, color);
 }
 
-static void DrawBuilding(int typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color) {
+static bool HasBeltFeedingFrom(int targetX, int targetY, int feederRot, Building* buildings, int count) {
+    if (!buildings) return false;
+    int dx = (int)roundf(sinf(feederRot * DEG2RAD));
+    int dy = (int)roundf(-cosf(feederRot * DEG2RAD));
+    int feederX = targetX - dx;
+    int feederY = targetY - dy;
+    for (int i = 0; i < count; i++) {
+        if (buildings[i].typeIdx == 1 && buildings[i].x == feederX && buildings[i].y == feederY && buildings[i].rotation == feederRot) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void DrawBuilding(int typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color, Building* buildings, int buildingCount) {
     Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
     for (int dx = 0; dx < size; dx++) {
         for (int dy = 0; dy < size; dy++) {
@@ -101,10 +115,26 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
         Vector2 tip = { buildingCenter.x + dir.x * tileSize, buildingCenter.y + dir.y * tileSize };
         DrawChevron(tip, tileSize * 0.18f, (float)rotation, 35.0f, 2.0f, chevronColor);
     } else if (typeIdx == 1) {
+        int inputRot = rotation;
+        if (buildings) {
+            bool hasBack = HasBeltFeedingFrom(originX, originY, rotation, buildings, buildingCount);
+            if (!hasBack) {
+                bool hasLeft = HasBeltFeedingFrom(originX, originY, (rotation + 90) % 360, buildings, buildingCount);
+                bool hasRight = HasBeltFeedingFrom(originX, originY, (rotation + 270) % 360, buildings, buildingCount);
+                if (hasLeft && !hasRight) {
+                    inputRot = (rotation + 90) % 360;
+                } else if (hasRight && !hasLeft) {
+                    inputRot = (rotation + 270) % 360;
+                }
+            }
+        }
+        
+        Vector2 inDir = AngleToDir((float)inputRot);
         Vector2 tileCenter = { originPxX + tileSize / 2.0f, originPxY + tileSize / 2.0f };
-        Vector2 startTip = { tileCenter.x - dir.x * tileSize * 0.22f, tileCenter.y - dir.y * tileSize * 0.22f };
+        Vector2 startTip = { tileCenter.x - inDir.x * tileSize * 0.22f, tileCenter.y - inDir.y * tileSize * 0.22f };
         Vector2 endTip = { tileCenter.x + dir.x * tileSize * 0.22f, tileCenter.y + dir.y * tileSize * 0.22f };
-        DrawChevron(startTip, tileSize * 0.14f, (float)rotation, 35.0f, 2.0f, chevronColor);
+        
+        DrawChevron(startTip, tileSize * 0.14f, (float)inputRot, 35.0f, 2.0f, chevronColor);
         DrawChevron(endTip, tileSize * 0.14f, (float)rotation, 35.0f, 2.0f, chevronColor);
     } else if (typeIdx == 2) {
         Vector2 tileCenter = { originPxX + tileSize / 2.0f, originPxY + tileSize / 2.0f };
@@ -294,13 +324,13 @@ int main(void) {
 
         for (int i = 0; i < buildingCount; i++) {
             if (buildings[i].x != buildings[i].originX || buildings[i].y != buildings[i].originY) continue;
-            DrawBuilding(buildings[i].typeIdx, buildings[i].originX, buildings[i].originY, buildings[i].size, buildings[i].rotation, tileSize, BUILDING_TYPES[buildings[i].typeIdx].color);
+            DrawBuilding(buildings[i].typeIdx, buildings[i].originX, buildings[i].originY, buildings[i].size, buildings[i].rotation, tileSize, BUILDING_TYPES[buildings[i].typeIdx].color, buildings, buildingCount);
         }
 
         if (!mouseOverToolbar && currentBuildingIdx != -1) {
             Color base = BUILDING_TYPES[currentBuildingIdx].color;
             Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
-            DrawBuilding(currentBuildingIdx, originX, originY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint);
+            DrawBuilding(currentBuildingIdx, originX, originY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint, buildings, buildingCount);
         }
 
         EndMode2D();
