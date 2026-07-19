@@ -40,8 +40,8 @@ typedef struct {
     int typeIdx;
     int rotation;
     int progress;
-    float belt_items[2][4];
-    int belt_item_types[2][4];
+    float belt_items[2][5];
+    int belt_item_types[2][5];
     int outputType;
 } Building;
 
@@ -63,11 +63,40 @@ static double get_time_ms() {
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
 }
 
+static int GetFeederRotation(Building* belt, Building* buildings, int buildingCount) {
+    int dirs[4] = { 0, 90, 180, 270 };
+    for (int i = 0; i < 4; i++) {
+        int rot = dirs[i];
+        int dx = (int)roundf(sinf(rot * DEG2RAD));
+        int dy = (int)roundf(-cosf(rot * DEG2RAD));
+        int checkX = belt->x - dx;
+        int checkY = belt->y - dy;
+        for (int b = 0; b < buildingCount; b++) {
+            if (buildings[b].typeIdx == 1 && buildings[b].x == checkX && buildings[b].y == checkY && buildings[b].rotation == rot) {
+                return rot;
+            }
+        }
+    }
+    return -1;
+}
+
+static int GetBeltLaneCapacity(Building* belt, int lane, Building* buildings, int buildingCount) {
+    int feederRot = GetFeederRotation(belt, buildings, buildingCount);
+    if (feederRot != -1) {
+        int relRot = (belt->rotation - feederRot + 360) % 360;
+        if (relRot == 0) return 4;
+        if (relRot == 90) return (lane == 1) ? 2 : 5;
+        if (relRot == 270) return (lane == 0) ? 2 : 5;
+    }
+    return 4;
+}
+
 static void game_logic_tick(Building* buildings, int buildingCount, Item** items, int* itemCount, int* itemCapacity, int tileSize) {
     for (int i = 0; i < buildingCount; i++) {
         if (buildings[i].typeIdx == 1) {
             for (int l = 0; l < 2; l++) {
-                for (int j = 0; j < 4; j++) {
+                int capacity = GetBeltLaneCapacity(&buildings[i], l, buildings, buildingCount);
+                for (int j = 0; j < capacity; j++) {
                     if (buildings[i].belt_items[l][j] >= 0.0f) {
                         float max_p = 1.0f;
                         if (j > 0 && buildings[i].belt_items[l][j - 1] >= 0.0f) {
@@ -101,39 +130,23 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
                     }
 
                     if (targetBeltIdx != -1) {
-                        int targetRot = buildings[targetBeltIdx].rotation;
-                        int myRot = buildings[i].rotation;
-                        int relRot = (targetRot - myRot + 360) % 360;
-
                         int targetLane = l;
-                        if (relRot == 90) {
-                            targetLane = 1;
-                        } else if (relRot == 270) {
-                            targetLane = 0;
-                        }
 
+                        int capacity = GetBeltLaneCapacity(&buildings[targetBeltIdx], targetLane, buildings, buildingCount);
                         int lastItemIdx = -1;
-                        for (int j = 0; j < 4; j++) {
-                            if (buildings[targetBeltIdx].belt_items[targetLane][j] >= 0.0f) {
-                                lastItemIdx = j;
-                            }
+                        for (int j = 0; j < capacity; j++) {
+                            if (buildings[targetBeltIdx].belt_items[targetLane][j] >= 0.0f) lastItemIdx = j;
                         }
 
-                        bool canInsert = false;
-                        if (lastItemIdx == -1) {
-                            canInsert = true;
-                        } else if (lastItemIdx < 3 && buildings[targetBeltIdx].belt_items[targetLane][lastItemIdx] >= 0.25f) {
-                            canInsert = true;
-                        }
-
-                        if (canInsert) {
+                        if (lastItemIdx < capacity - 1 && (lastItemIdx == -1 || buildings[targetBeltIdx].belt_items[targetLane][lastItemIdx] >= 0.25f)) {
                             buildings[targetBeltIdx].belt_items[targetLane][lastItemIdx + 1] = 0.0f;
                             buildings[targetBeltIdx].belt_item_types[targetLane][lastItemIdx + 1] = buildings[i].belt_item_types[l][0];
-                            for (int j = 0; j < 3; j++) {
+
+                            for (int j = 0; j < 4; j++) {
                                 buildings[i].belt_items[l][j] = buildings[i].belt_items[l][j + 1];
                                 buildings[i].belt_item_types[l][j] = buildings[i].belt_item_types[l][j + 1];
                             }
-                            buildings[i].belt_items[l][3] = -1.0f;
+                            buildings[i].belt_items[l][4] = -1.0f;
                         }
                     }
                 }
@@ -158,35 +171,26 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
                     }
                 }
 
-                bool canDrop = false;
                 if (targetBeltIdx != -1) {
                     int l = 1;
+                    int capacity = GetBeltLaneCapacity(&buildings[targetBeltIdx], l, buildings, buildingCount);
                     int lastItemIdx = -1;
-                    for (int j = 0; j < 4; j++) {
-                        if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
-                    }
-                    if (lastItemIdx == -1 || (lastItemIdx < 3 && buildings[targetBeltIdx].belt_items[l][lastItemIdx] >= 0.25f)) {
-                        canDrop = true;
+                    for (int j = 0; j < capacity; j++) if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
+
+                    if (lastItemIdx < capacity - 1 && (lastItemIdx == -1 || buildings[targetBeltIdx].belt_items[l][lastItemIdx] >= 0.25f)) {
+                        buildings[targetBeltIdx].belt_items[l][lastItemIdx + 1] = 0.0f;
+                        buildings[targetBeltIdx].belt_item_types[l][lastItemIdx + 1] = buildings[i].outputType;
+                        buildings[i].progress = 0;
                     }
                 } else {
                     bool itemCollision = false;
                     for (int k = 0; k < *itemCount; k++) {
                         if ((int)floorf((*items)[k].x / tileSize) == tx && (int)floorf((*items)[k].y / tileSize) == ty) {
-                            itemCollision = true;
-                            break;
+                            itemCollision = true; break;
                         }
                     }
-                    if (!itemCollision) canDrop = true;
-                }
 
-                if (canDrop) {
-                    if (targetBeltIdx != -1) {
-                        int l = 1;
-                        int lastItemIdx = -1;
-                        for (int j = 0; j < 4; j++) if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
-                        buildings[targetBeltIdx].belt_items[l][lastItemIdx + 1] = 0.0f;
-                        buildings[targetBeltIdx].belt_item_types[l][lastItemIdx + 1] = buildings[i].outputType;
-                    } else {
+                    if (!itemCollision) {
                         float itemX = (tx + 0.5f - (float)dirX * 0.152f) * tileSize;
                         float itemY = (ty + 0.5f - (float)dirY * 0.152f) * tileSize;
                         if (*itemCount >= *itemCapacity) {
@@ -194,8 +198,8 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
                             *items = realloc(*items, *itemCapacity * sizeof(Item));
                         }
                         (*items)[(*itemCount)++] = (Item){ itemX, itemY, buildings[i].outputType };
+                        buildings[i].progress = 0;
                     }
-                    buildings[i].progress = 0;
                 }
             }
         }
@@ -357,7 +361,7 @@ int main(void) {
 
         for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i) && BUILDING_TYPES[i].name != NULL) currentBuildingIdx = i;
         if (IsKeyPressed(KEY_ZERO) && BUILDING_TYPES[9].name != NULL) currentBuildingIdx = 9;
-        
+
         if (IsKeyPressed(KEY_O)) {
             currentDrillOutputMode = (currentDrillOutputMode + 1) % 3;
         }
@@ -426,7 +430,7 @@ int main(void) {
                     newB.typeIdx = currentBuildingIdx;
                     newB.rotation = currentHeldRotation;
                     newB.outputType = currentDrillOutputMode;
-                    for(int l=0; l<2; l++) for(int j=0; j<4; j++) newB.belt_items[l][j] = -1.0f;
+                    for(int l=0; l<2; l++) for(int j=0; j<5; j++) newB.belt_items[l][j] = -1.0f;
 
                     if (currentBuildingIdx == 1) {
                         for (int k = 0; k < itemCount; k++) {
@@ -529,7 +533,7 @@ int main(void) {
                 Vector2 right = { -dir.y, dir.x };
                 for (int l = 0; l < 2; l++) {
                     float laneOffset = (l == 0) ? -0.25f : 0.25f;
-                    for (int j = 0; j < 4; j++) {
+                    for (int j = 0; j < 5; j++) {
                         float prog = buildings[i].belt_items[l][j];
                         if (prog >= 0.0f) {
                             float pOffset = prog - 0.5f;
