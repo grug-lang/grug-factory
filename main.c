@@ -11,6 +11,19 @@
 #define MAX_ACCUMULATED_MS 250.0
 #define MAX_TICKS_PER_FRAME 5
 
+static const Color TILE_COLORS[10] = {
+    { 230, 60, 60, 255 },
+    { 60, 200, 90, 255 },
+    { 60, 130, 230, 255 },
+    { 230, 190, 60, 255 },
+    { 190, 60, 230, 255 },
+    { 60, 220, 220, 255 },
+    { 230, 130, 60, 255 },
+    { 160, 160, 160, 255 },
+    { 90, 90, 220, 255 },
+    { 220, 90, 150, 255 },
+};
+
 typedef struct {
     int x;
     int y;
@@ -28,16 +41,14 @@ static double get_time_ms() {
 }
 
 static void game_logic_tick(void) {
-    printf("foo\n");
+    // printf("foo\n");
 }
 
 int main(void) {
     grug_default_settings();
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
-    InitWindow(0, 0, "grug-factory engine");
-
-    HideCursor();
+    InitWindow(0, 0, "grugtorio");
 
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
@@ -49,14 +60,6 @@ int main(void) {
 
     SetTargetFPS(60);
     const int tileSize = 64;
-
-    Texture2D textures[10];
-    for (int i = 0; i < 10; i++) {
-        int num = (i == 9) ? 0 : i + 1;
-        textures[i] = LoadTexture(TextFormat("textures/tiles/%d.png", num));
-    }
-
-    Texture2D cursorTex = LoadTexture("textures/cursor.png");
 
     Tile* tiles = NULL;
     int tileCount = 0;
@@ -206,9 +209,6 @@ int main(void) {
         for (int y = startY; y <= endY; y++) DrawLine(startX * tileSize, y * tileSize, endX * tileSize, y * tileSize, (Color){ 45, 45, 45, 255 });
 
         for (int i = 0; i < tileCount; i++) {
-            Texture2D tex = textures[tiles[i].texIdx];
-            Rectangle src = { 0, 0, (float)tex.width, (float)tex.height };
-
             Rectangle dest = {
                 (float)tiles[i].x * tileSize + (tileSize / 2.0f),
                 (float)tiles[i].y * tileSize + (tileSize / 2.0f),
@@ -218,15 +218,14 @@ int main(void) {
 
             Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
 
-            DrawTexturePro(tex, src, dest, origin, (float)tiles[i].rotation, WHITE);
+            DrawRectanglePro(dest, origin, (float)tiles[i].rotation, TILE_COLORS[tiles[i].texIdx]);
         }
 
         if (!mouseOverToolbar && currentTexIndex != -1) {
             int size = currentTexIndex + 1;
-            Texture2D tex = textures[currentTexIndex];
-            Rectangle src = { 0, 0, (float)tex.width, (float)tex.height };
             Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
-            Color tint = canPlace ? (Color){ 0, 255, 0, 128 } : (Color){ 255, 0, 0, 128 };
+            Color base = TILE_COLORS[currentTexIndex];
+            Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
                     Rectangle dest = {
@@ -235,7 +234,7 @@ int main(void) {
                         (float)tileSize,
                         (float)tileSize
                     };
-                    DrawTexturePro(tex, src, dest, origin, (float)currentHeldRotation, tint);
+                    DrawRectanglePro(dest, origin, (float)currentHeldRotation, tint);
                 }
             }
         }
@@ -261,17 +260,13 @@ int main(void) {
             int itemSize = 40;
             int x = startXPos + 5 + (i * 49);
             int y = startYPos + 5;
-            DrawTexturePro(textures[i], (Rectangle){0, 0, (float)textures[i].width, (float)textures[i].height}, (Rectangle){(float)x, (float)y, (float)itemSize, (float)itemSize}, (Vector2){0,0}, 0, WHITE);
+            DrawRectangle(x, y, itemSize, itemSize, TILE_COLORS[i]);
             if (i == currentTexIndex) DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
         }
-
-        DrawTextureV(cursorTex, GetMousePosition(), WHITE);
 
         EndDrawing();
     }
 
-    for (int i = 0; i < 10; i++) UnloadTexture(textures[i]);
-    UnloadTexture(cursorTex);
     free(tiles);
     CloseWindow();
 }

@@ -6,5 +6,5 @@ TODO: Add intro
 
 ```bash
 cmake -B build
-cmake --build build --target run-grug-factory
+cmake --build build --target run-grugtorio
 ```

@@ -26,27 +26,18 @@ add_custom_target(
     COMMENT "Compiling grug-rs via Cargo..."
 )
 
-add_executable(grug-factory main.c)
+add_executable(grugtorio main.c)
 
-add_custom_command(
-    TARGET grug-factory
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_SOURCE_DIR}/textures"
-    "${CMAKE_CURRENT_BINARY_DIR}/textures"
-    COMMENT "Copying assets to build directory..."
-)
+target_compile_options(grugtorio PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
-target_compile_options(grug-factory PRIVATE -Wall -Wextra -Werror -Wpedantic)
-
-add_custom_target(run-grug-factory
-    COMMAND $<TARGET_FILE:grug-factory>
-    DEPENDS grug-factory
+add_custom_target(run-grugtorio
+    COMMAND $<TARGET_FILE:grugtorio>
+    DEPENDS grugtorio
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-add_dependencies(grug-factory build_grug_rs)
+add_dependencies(grugtorio build_grug_rs)
 
-target_include_directories(grug-factory SYSTEM PRIVATE ${GRUG_RS_SOURCE_DIR}/include)
+target_include_directories(grugtorio SYSTEM PRIVATE ${GRUG_RS_SOURCE_DIR}/include)
 
-target_link_libraries(grug-factory PRIVATE raylib ${GRUG_RS_LIB} dl pthread m)
+target_link_libraries(grugtorio PRIVATE raylib ${GRUG_RS_LIB} dl pthread m)
