@@ -245,10 +245,20 @@ int main(void) {
             if (currentBuildingIdx != -1) {
                 currentHeldRotation = (currentHeldRotation + 90) % 360;
             } else {
+                int targetOriginX = -1, targetOriginY = -1, targetSize = -1;
                 for (int i = 0; i < buildingCount; i++) {
                     if (buildings[i].x == gridX && buildings[i].y == gridY) {
-                        buildings[i].rotation = (buildings[i].rotation + 90) % 360;
+                        targetOriginX = buildings[i].originX;
+                        targetOriginY = buildings[i].originY;
+                        targetSize = buildings[i].size;
                         break;
+                    }
+                }
+                if (targetSize != -1) {
+                    for (int i = 0; i < buildingCount; i++) {
+                        if (buildings[i].originX == targetOriginX && buildings[i].originY == targetOriginY && buildings[i].size == targetSize) {
+                            buildings[i].rotation = (buildings[i].rotation + 90) % 360;
+                        }
                     }
                 }
             }
