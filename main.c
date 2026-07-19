@@ -524,18 +524,24 @@ int main(void) {
         int startXPos = (screenWidth - barW) / 2;
         int startYPos = screenHeight - barH - 10;
 
+        int itemSize = 40;
+        int slotWidth = barW / 10;
+
         DrawRectangle(startXPos, startYPos, barW, barH, (Color){ 30, 30, 30, 255 });
+
         for (int i = 0; i < 10; i++) {
-            int itemSize = 40;
-            int x = startXPos + 5 + (i * 49);
-            int y = startYPos + 5;
+            int x = startXPos + i * slotWidth + (slotWidth - itemSize) / 2;
+            int y = startYPos + (barH - itemSize) / 2;
+
             if (BUILDING_TYPES[i].name != NULL) {
                 DrawRectangle(x, y, itemSize, itemSize, BUILDING_TYPES[i].color);
             } else {
                 DrawRectangle(x, y, itemSize, itemSize, (Color){ 45, 45, 45, 255 });
             }
+
             if (i == currentBuildingIdx) {
                 DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
+
                 const char* heldName = BUILDING_TYPES[i].name;
                 int textW = MeasureText(heldName, 14);
                 DrawText(heldName, x + itemSize / 2 - textW / 2, y - 16, 14, RAYWHITE);
