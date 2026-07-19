@@ -14,9 +14,9 @@ typedef struct {
     const char* name;
     Color color;
     int size;
-} TileType;
+} BuildingType;
 
-static const TileType TILE_TYPES[10] = {
+static const BuildingType BUILDING_TYPES[10] = {
     { "Electric mining drill", { 130, 130, 130, 255 }, 3 },
     { "Transport belt", { 170, 160, 110, 255 }, 1 },
     { "Inserter", { 230, 200, 40, 255 }, 1 },
@@ -35,9 +35,9 @@ typedef struct {
     int originX;
     int originY;
     int size;
-    int texIdx;
+    int typeIdx;
     int rotation;
-} Tile;
+} Building;
 
 static double get_time_ms() {
     struct timespec ts;
@@ -76,7 +76,7 @@ static void DrawKinkedChevron(Vector2 a, Vector2 c, float kinkOffset, float thic
     DrawLineEx(mid, c, thickness, color);
 }
 
-static void DrawBuilding(int texIdx, int originX, int originY, int size, int rotation, int tileSize, Color color) {
+static void DrawBuilding(int typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color) {
     Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
     for (int dx = 0; dx < size; dx++) {
         for (int dy = 0; dy < size; dy++) {
@@ -97,16 +97,16 @@ static void DrawBuilding(int texIdx, int originX, int originY, int size, int rot
     Vector2 buildingCenter = { originPxX + sizePx / 2.0f, originPxY + sizePx / 2.0f };
     Color chevronColor = (Color){ 20, 20, 20, 220 };
 
-    if (texIdx == 0) {
+    if (typeIdx == 0) {
         Vector2 tip = { buildingCenter.x + dir.x * tileSize, buildingCenter.y + dir.y * tileSize };
         DrawChevron(tip, tileSize * 0.18f, (float)rotation, 35.0f, 2.0f, chevronColor);
-    } else if (texIdx == 1) {
+    } else if (typeIdx == 1) {
         Vector2 tileCenter = { originPxX + tileSize / 2.0f, originPxY + tileSize / 2.0f };
         Vector2 startTip = { tileCenter.x - dir.x * tileSize * 0.22f, tileCenter.y - dir.y * tileSize * 0.22f };
         Vector2 endTip = { tileCenter.x + dir.x * tileSize * 0.22f, tileCenter.y + dir.y * tileSize * 0.22f };
         DrawChevron(startTip, tileSize * 0.14f, (float)rotation, 35.0f, 2.0f, chevronColor);
         DrawChevron(endTip, tileSize * 0.14f, (float)rotation, 35.0f, 2.0f, chevronColor);
-    } else if (texIdx == 2) {
+    } else if (typeIdx == 2) {
         Vector2 tileCenter = { originPxX + tileSize / 2.0f, originPxY + tileSize / 2.0f };
         Vector2 edgePoint = { tileCenter.x + dir.x * tileSize * 0.5f, tileCenter.y + dir.y * tileSize * 0.5f };
         DrawKinkedChevron(tileCenter, edgePoint, tileSize * 0.12f, 3.0f, chevronColor);
@@ -130,10 +130,10 @@ int main(void) {
     SetTargetFPS(60);
     const int tileSize = 64;
 
-    Tile* tiles = NULL;
-    int tileCount = 0;
-    int tileCapacity = 0;
-    int currentTexIndex = -1;
+    Building* buildings = NULL;
+    int buildingCount = 0;
+    int buildingCapacity = 0;
+    int currentBuildingIdx = -1;
     int currentHeldRotation = 0;
 
     double last_time = get_time_ms();
@@ -159,8 +159,8 @@ int main(void) {
             }
         }
 
-        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i) && TILE_TYPES[i].name != NULL) currentTexIndex = i;
-        if (IsKeyPressed(KEY_ZERO) && TILE_TYPES[9].name != NULL) currentTexIndex = 9;
+        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i) && BUILDING_TYPES[i].name != NULL) currentBuildingIdx = i;
+        if (IsKeyPressed(KEY_ZERO) && BUILDING_TYPES[9].name != NULL) currentBuildingIdx = 9;
 
         float moveSpeed = 500.0f / camera.zoom * dt;
         if (IsKeyDown(KEY_W)) camera.target.y -= moveSpeed;
@@ -187,14 +187,14 @@ int main(void) {
         bool mouseOverToolbar = (GetMouseY() > screenHeight - 70);
         bool canPlace = true;
 
-        if (currentTexIndex != -1) {
-            int size = TILE_TYPES[currentTexIndex].size;
+        if (currentBuildingIdx != -1) {
+            int size = BUILDING_TYPES[currentBuildingIdx].size;
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
                     int cx = gridX + dx;
                     int cy = gridY + dy;
-                    for (int i = 0; i < tileCount; i++) {
-                        if (tiles[i].x == cx && tiles[i].y == cy) { canPlace = false; break; }
+                    for (int i = 0; i < buildingCount; i++) {
+                        if (buildings[i].x == cx && buildings[i].y == cy) { canPlace = false; break; }
                     }
                     if (!canPlace) break;
                 }
@@ -202,47 +202,47 @@ int main(void) {
             }
         }
 
-        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && currentTexIndex != -1 && canPlace) {
-            int size = TILE_TYPES[currentTexIndex].size;
-            if (tileCount + (size * size) > tileCapacity) {
-                tileCapacity = (tileCapacity == 0) ? (size * size) : tileCapacity * 2;
-                while (tileCount + (size * size) > tileCapacity) tileCapacity *= 2;
-                tiles = realloc(tiles, tileCapacity * sizeof(Tile));
+        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && currentBuildingIdx != -1 && canPlace) {
+            int size = BUILDING_TYPES[currentBuildingIdx].size;
+            if (buildingCount + (size * size) > buildingCapacity) {
+                buildingCapacity = (buildingCapacity == 0) ? (size * size) : buildingCapacity * 2;
+                while (buildingCount + (size * size) > buildingCapacity) buildingCapacity *= 2;
+                buildings = realloc(buildings, buildingCapacity * sizeof(Building));
             }
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
-                    tiles[tileCount++] = (Tile){ gridX + dx, gridY + dy, gridX, gridY, size, currentTexIndex, currentHeldRotation };
+                    buildings[buildingCount++] = (Building){ gridX + dx, gridY + dy, gridX, gridY, size, currentBuildingIdx, currentHeldRotation };
                 }
             }
         }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
             int targetOriginX = -1, targetOriginY = -1, targetSize = -1;
-            for (int i = 0; i < tileCount; i++) {
-                if (tiles[i].x == gridX && tiles[i].y == gridY) {
-                    targetOriginX = tiles[i].originX;
-                    targetOriginY = tiles[i].originY;
-                    targetSize = tiles[i].size;
+            for (int i = 0; i < buildingCount; i++) {
+                if (buildings[i].x == gridX && buildings[i].y == gridY) {
+                    targetOriginX = buildings[i].originX;
+                    targetOriginY = buildings[i].originY;
+                    targetSize = buildings[i].size;
                     break;
                 }
             }
             if (targetSize != -1) {
-                for (int i = tileCount - 1; i >= 0; i--) {
-                    if (tiles[i].originX == targetOriginX && tiles[i].originY == targetOriginY && tiles[i].size == targetSize) {
-                        tiles[i] = tiles[tileCount - 1];
-                        tileCount--;
+                for (int i = buildingCount - 1; i >= 0; i--) {
+                    if (buildings[i].originX == targetOriginX && buildings[i].originY == targetOriginY && buildings[i].size == targetSize) {
+                        buildings[i] = buildings[buildingCount - 1];
+                        buildingCount--;
                     }
                 }
             }
         }
 
         if (IsKeyPressed(KEY_R)) {
-            if (currentTexIndex != -1) {
+            if (currentBuildingIdx != -1) {
                 currentHeldRotation = (currentHeldRotation + 90) % 360;
             } else {
-                for (int i = 0; i < tileCount; i++) {
-                    if (tiles[i].x == gridX && tiles[i].y == gridY) {
-                        tiles[i].rotation = (tiles[i].rotation + 90) % 360;
+                for (int i = 0; i < buildingCount; i++) {
+                    if (buildings[i].x == gridX && buildings[i].y == gridY) {
+                        buildings[i].rotation = (buildings[i].rotation + 90) % 360;
                         break;
                     }
                 }
@@ -250,12 +250,12 @@ int main(void) {
         }
 
         if (IsKeyPressed(KEY_Q)) {
-            if (currentTexIndex != -1) {
-                currentTexIndex = -1;
+            if (currentBuildingIdx != -1) {
+                currentBuildingIdx = -1;
             } else {
-                for (int i = 0; i < tileCount; i++) {
-                    if (tiles[i].x == gridX && tiles[i].y == gridY) {
-                        currentTexIndex = tiles[i].texIdx;
+                for (int i = 0; i < buildingCount; i++) {
+                    if (buildings[i].x == gridX && buildings[i].y == gridY) {
+                        currentBuildingIdx = buildings[i].typeIdx;
                         break;
                     }
                 }
@@ -277,21 +277,21 @@ int main(void) {
         for (int x = startX; x <= endX; x++) DrawLine(x * tileSize, startY * tileSize, x * tileSize, endY * tileSize, (Color){ 45, 45, 45, 255 });
         for (int y = startY; y <= endY; y++) DrawLine(startX * tileSize, y * tileSize, endX * tileSize, y * tileSize, (Color){ 45, 45, 45, 255 });
 
-        for (int i = 0; i < tileCount; i++) {
-            if (tiles[i].x != tiles[i].originX || tiles[i].y != tiles[i].originY) continue;
-            DrawBuilding(tiles[i].texIdx, tiles[i].originX, tiles[i].originY, tiles[i].size, tiles[i].rotation, tileSize, TILE_TYPES[tiles[i].texIdx].color);
+        for (int i = 0; i < buildingCount; i++) {
+            if (buildings[i].x != buildings[i].originX || buildings[i].y != buildings[i].originY) continue;
+            DrawBuilding(buildings[i].typeIdx, buildings[i].originX, buildings[i].originY, buildings[i].size, buildings[i].rotation, tileSize, BUILDING_TYPES[buildings[i].typeIdx].color);
         }
 
-        if (!mouseOverToolbar && currentTexIndex != -1) {
-            Color base = TILE_TYPES[currentTexIndex].color;
+        if (!mouseOverToolbar && currentBuildingIdx != -1) {
+            Color base = BUILDING_TYPES[currentBuildingIdx].color;
             Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
-            DrawBuilding(currentTexIndex, gridX, gridY, TILE_TYPES[currentTexIndex].size, currentHeldRotation, tileSize, tint);
+            DrawBuilding(currentBuildingIdx, gridX, gridY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint);
         }
 
         EndMode2D();
 
-        DrawText(TextFormat("Tile Coord: (%d, %d)", gridX, gridY), 10, 10, 20, RAYWHITE);
-        DrawText(TextFormat("Total Tiles: %d", tileCount), 10, 35, 20, GRAY);
+        DrawText(TextFormat("Building Coord: (%d, %d)", gridX, gridY), 10, 10, 20, RAYWHITE);
+        DrawText(TextFormat("Total Buildings: %d", buildingCount), 10, 35, 20, GRAY);
         DrawText(TextFormat("Zoom: %.2fx", camera.zoom), 10, 60, 20, GRAY);
 
         float fps = (dt > 0.0f) ? (1.0f / dt) : 0.0f;
@@ -309,14 +309,14 @@ int main(void) {
             int itemSize = 40;
             int x = startXPos + 5 + (i * 49);
             int y = startYPos + 5;
-            if (TILE_TYPES[i].name != NULL) {
-                DrawRectangle(x, y, itemSize, itemSize, TILE_TYPES[i].color);
+            if (BUILDING_TYPES[i].name != NULL) {
+                DrawRectangle(x, y, itemSize, itemSize, BUILDING_TYPES[i].color);
             } else {
                 DrawRectangle(x, y, itemSize, itemSize, (Color){ 45, 45, 45, 255 });
             }
-            if (i == currentTexIndex) {
+            if (i == currentBuildingIdx) {
                 DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
-                const char* heldName = TILE_TYPES[i].name;
+                const char* heldName = BUILDING_TYPES[i].name;
                 int textW = MeasureText(heldName, 14);
                 DrawText(heldName, x + itemSize / 2 - textW / 2, y - 16, 14, RAYWHITE);
             }
@@ -325,6 +325,6 @@ int main(void) {
         EndDrawing();
     }
 
-    free(tiles);
+    free(buildings);
     CloseWindow();
 }
