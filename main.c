@@ -113,9 +113,15 @@ static double get_time_ms() {
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
 }
 
-void SaveWorld(const char* path, Building* buildings, int buildingCount, Item* items, int itemCount) {
+void SaveWorld(const char* path, Building* buildings, int buildingCount, Item* items, int itemCount, Camera2D camera) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "version", 1);
+
+    cJSON_AddNumberToObject(root, "camera_target_x", camera.target.x);
+    cJSON_AddNumberToObject(root, "camera_target_y", camera.target.y);
+    cJSON_AddNumberToObject(root, "camera_offset_x", camera.offset.x);
+    cJSON_AddNumberToObject(root, "camera_offset_y", camera.offset.y);
+    cJSON_AddNumberToObject(root, "camera_zoom", camera.zoom);
 
     cJSON *bArray = cJSON_CreateArray();
     for (int i = 0; i < buildingCount; i++) {
@@ -170,7 +176,7 @@ void SaveWorld(const char* path, Building* buildings, int buildingCount, Item* i
     cJSON_Delete(root);
 }
 
-void LoadWorld(const char* path, Building** buildings, int* buildingCount, int* buildingCapacity, Item** items, int* itemCount, int* itemCapacity) {
+void LoadWorld(const char* path, Building** buildings, int* buildingCount, int* buildingCapacity, Item** items, int* itemCount, int* itemCapacity, Camera2D* camera) {
     FILE *f = fopen(path, "r");
     if (!f) return;
 
@@ -184,6 +190,17 @@ void LoadWorld(const char* path, Building** buildings, int* buildingCount, int* 
 
     cJSON *root = cJSON_Parse(data);
     if (!root) { free(data); return; }
+
+    cJSON *ctX = cJSON_GetObjectItem(root, "camera_target_x");
+    if (ctX) camera->target.x = (float)ctX->valuedouble;
+    cJSON *ctY = cJSON_GetObjectItem(root, "camera_target_y");
+    if (ctY) camera->target.y = (float)ctY->valuedouble;
+    cJSON *coX = cJSON_GetObjectItem(root, "camera_offset_x");
+    if (coX) camera->offset.x = (float)coX->valuedouble;
+    cJSON *coY = cJSON_GetObjectItem(root, "camera_offset_y");
+    if (coY) camera->offset.y = (float)coY->valuedouble;
+    cJSON *cz = cJSON_GetObjectItem(root, "camera_zoom");
+    if (cz) camera->zoom = (float)cz->valuedouble;
 
     cJSON *bArray = cJSON_GetObjectItem(root, "buildings");
     int count = cJSON_GetArraySize(bArray);
@@ -550,11 +567,16 @@ int main(int argc, char** argv) {
     int itemCount = 0;
     int itemCapacity = 0;
 
+    Camera2D camera = { 0 };
+    camera.target = (Vector2){ 0.0f, 0.0f };
+    camera.offset = (Vector2){ 0, 0 };
+    camera.zoom = 1.0f;
+
     char* output_save_path = NULL;
     int run_ticks = -1;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--input-save") == 0 && i + 1 < argc) {
-            LoadWorld(argv[++i], &buildings, &buildingCount, &buildingCapacity, &items, &itemCount, &itemCapacity);
+            LoadWorld(argv[++i], &buildings, &buildingCount, &buildingCapacity, &items, &itemCount, &itemCapacity, &camera);
         } else if (strcmp(argv[i], "--output-save") == 0 && i + 1 < argc) {
             output_save_path = argv[++i];
         } else if (strcmp(argv[i], "--ticks") == 0 && i + 1 < argc) {
@@ -566,7 +588,7 @@ int main(int argc, char** argv) {
         for (int t = 0; t < run_ticks; t++) {
             game_logic_tick(buildings, buildingCount, &items, &itemCount, &itemCapacity, tileSize);
         }
-        if (output_save_path) SaveWorld(output_save_path, buildings, buildingCount, items, itemCount);
+        if (output_save_path) SaveWorld(output_save_path, buildings, buildingCount, items, itemCount, camera);
         return 0;
     }
 
@@ -576,10 +598,7 @@ int main(int argc, char** argv) {
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
 
-    Camera2D camera = { 0 };
-    camera.target = (Vector2){ 0.0f, 0.0f };
-    camera.offset = (Vector2){ screenWidth / 2.0f, screenHeight / 2.0f };
-    camera.zoom = 1.0f;
+    if (camera.offset.x == 0) camera.offset = (Vector2){ screenWidth / 2.0f, screenHeight / 2.0f };
 
     SetTargetFPS(60);
 
@@ -871,7 +890,7 @@ int main(int argc, char** argv) {
     }
 
     if (output_save_path != NULL) {
-        SaveWorld(output_save_path, buildings, buildingCount, items, itemCount);
+        SaveWorld(output_save_path, buildings, buildingCount, items, itemCount, camera);
     }
 
     free(buildings);
