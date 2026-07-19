@@ -1,9 +1,11 @@
+#include "cJSON.h"
 #include "grug.h"
 #include "raylib.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <time.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -93,6 +95,106 @@ static double get_time_ms() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
+
+void SaveWorld(const char* path, Building* buildings, int buildingCount) {
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "version", 1);
+
+    cJSON *bArray = cJSON_CreateArray();
+    for (int i = 0; i < buildingCount; i++) {
+        cJSON *bObj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(bObj, "x", buildings[i].x);
+        cJSON_AddNumberToObject(bObj, "y", buildings[i].y);
+        cJSON_AddNumberToObject(bObj, "originX", buildings[i].originX);
+        cJSON_AddNumberToObject(bObj, "originY", buildings[i].originY);
+        cJSON_AddNumberToObject(bObj, "size", buildings[i].size);
+        cJSON_AddNumberToObject(bObj, "typeIdx", buildings[i].typeIdx);
+        cJSON_AddNumberToObject(bObj, "rotation", buildings[i].rotation);
+        cJSON_AddNumberToObject(bObj, "progress", buildings[i].progress);
+        cJSON_AddNumberToObject(bObj, "outputType", buildings[i].outputType);
+        
+        cJSON *itemsArray = cJSON_CreateArray();
+        for (int l = 0; l < 2; l++) {
+            for (int j = 0; j < 5; j++) {
+                cJSON_AddItemToArray(itemsArray, cJSON_CreateNumber(buildings[i].belt_items[l][j]));
+            }
+        }
+        cJSON_AddItemToObject(bObj, "belt_items", itemsArray);
+
+        cJSON *typesArray = cJSON_CreateArray();
+        for (int l = 0; l < 2; l++) {
+            for (int j = 0; j < 5; j++) {
+                cJSON_AddItemToArray(typesArray, cJSON_CreateNumber(buildings[i].belt_item_types[l][j]));
+            }
+        }
+        cJSON_AddItemToObject(bObj, "belt_item_types", typesArray);
+
+        cJSON_AddItemToArray(bArray, bObj);
+    }
+    cJSON_AddItemToObject(root, "buildings", bArray);
+
+    char *out = cJSON_Print(root);
+    FILE *f = fopen(path, "w");
+    if (f) {
+        fprintf(f, "%s", out);
+        fclose(f);
+    }
+    free(out);
+    cJSON_Delete(root);
+}
+
+void LoadWorld(const char* path, Building** buildings, int* buildingCount, int* buildingCapacity) {
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *data = malloc(len + 1);
+    fread(data, 1, len, f);
+    data[len] = '\0';
+    fclose(f);
+
+    cJSON *root = cJSON_Parse(data);
+    if (!root) { free(data); return; }
+
+    cJSON *bArray = cJSON_GetObjectItem(root, "buildings");
+    int count = cJSON_GetArraySize(bArray);
+    
+    *buildingCount = count;
+    *buildingCapacity = count;
+    *buildings = realloc(*buildings, sizeof(Building) * (*buildingCapacity));
+
+    for (int i = 0; i < count; i++) {
+        cJSON *bObj = cJSON_GetArrayItem(bArray, i);
+        (*buildings)[i].x = cJSON_GetObjectItem(bObj, "x")->valueint;
+        (*buildings)[i].y = cJSON_GetObjectItem(bObj, "y")->valueint;
+        (*buildings)[i].originX = cJSON_GetObjectItem(bObj, "originX")->valueint;
+        (*buildings)[i].originY = cJSON_GetObjectItem(bObj, "originY")->valueint;
+        (*buildings)[i].size = cJSON_GetObjectItem(bObj, "size")->valueint;
+        (*buildings)[i].typeIdx = cJSON_GetObjectItem(bObj, "typeIdx")->valueint;
+        (*buildings)[i].rotation = cJSON_GetObjectItem(bObj, "rotation")->valueint;
+        (*buildings)[i].progress = cJSON_GetObjectItem(bObj, "progress")->valueint;
+        (*buildings)[i].outputType = cJSON_GetObjectItem(bObj, "outputType")->valueint;
+
+        cJSON *itemsArray = cJSON_GetObjectItem(bObj, "belt_items");
+        for (int l = 0; l < 2; l++) {
+            for (int j = 0; j < 5; j++) {
+                (*buildings)[i].belt_items[l][j] = cJSON_GetArrayItem(itemsArray, l * 5 + j)->valuedouble;
+            }
+        }
+
+        cJSON *typesArray = cJSON_GetObjectItem(bObj, "belt_item_types");
+        for (int l = 0; l < 2; l++) {
+            for (int j = 0; j < 5; j++) {
+                (*buildings)[i].belt_item_types[l][j] = cJSON_GetArrayItem(typesArray, l * 5 + j)->valueint;
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+    free(data);
 }
 
 static int GetFeederRotation(Building* belt, Building* buildings, int buildingCount) {
@@ -400,8 +502,37 @@ static bool RemoveBuildingAtCursor(int gridX, int gridY, Building* buildings, in
     return true;
 }
 
-int main(void) {
-    grug_default_settings();
+int main(int argc, char** argv) {
+    const int tileSize = 64;
+    Building* buildings = NULL;
+    int buildingCount = 0;
+    int buildingCapacity = 0;
+    BuildingTypeEnum currentBuildingIdx = BUILDING_NONE;
+    int currentHeldRotation = DIR_UP;
+    ItemTypeEnum currentDrillOutputMode = ITEM_IRON_ORE;
+    Item* items = NULL;
+    int itemCount = 0;
+    int itemCapacity = 0;
+
+    char* output_save_path = NULL;
+    int run_ticks = -1;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--input-save") == 0 && i + 1 < argc) {
+            LoadWorld(argv[++i], &buildings, &buildingCount, &buildingCapacity);
+        } else if (strcmp(argv[i], "--output-save") == 0 && i + 1 < argc) {
+            output_save_path = argv[++i];
+        } else if (strcmp(argv[i], "--ticks") == 0 && i + 1 < argc) {
+            run_ticks = atoi(argv[++i]);
+        }
+    }
+
+    if (run_ticks > 0) {
+        for (int t = 0; t < run_ticks; t++) {
+            game_logic_tick(buildings, buildingCount, &items, &itemCount, &itemCapacity, tileSize);
+        }
+        if (output_save_path) SaveWorld(output_save_path, buildings, buildingCount);
+        return 0;
+    }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(0, 0, "grugtorio");
@@ -415,18 +546,6 @@ int main(void) {
     camera.zoom = 1.0f;
 
     SetTargetFPS(60);
-    const int tileSize = 64;
-
-    Building* buildings = NULL;
-    int buildingCount = 0;
-    int buildingCapacity = 0;
-    BuildingTypeEnum currentBuildingIdx = BUILDING_NONE;
-    int currentHeldRotation = DIR_UP;
-    ItemTypeEnum currentDrillOutputMode = ITEM_IRON_ORE;
-
-    Item* items = NULL;
-    int itemCount = 0;
-    int itemCapacity = 0;
 
     double last_time = get_time_ms();
     double accumulator = 0.0;
@@ -708,6 +827,10 @@ int main(void) {
         }
 
         EndDrawing();
+    }
+
+    if (output_save_path != NULL) {
+        SaveWorld(output_save_path, buildings, buildingCount);
     }
 
     free(buildings);
