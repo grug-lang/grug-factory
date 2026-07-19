@@ -264,12 +264,12 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
                 }
             }
         }
-        
+
         Vector2 inDir = AngleToDir((float)inputRot);
         Vector2 tileCenter = { originPxX + tileSize / 2.0f, originPxY + tileSize / 2.0f };
         Vector2 startTip = { tileCenter.x - inDir.x * tileSize * 0.22f, tileCenter.y - inDir.y * tileSize * 0.22f };
         Vector2 endTip = { tileCenter.x + dir.x * tileSize * 0.22f, tileCenter.y + dir.y * tileSize * 0.22f };
-        
+
         DrawChevron(startTip, tileSize * 0.14f, (float)inputRot, 35.0f, 2.0f, chevronColor);
         DrawChevron(endTip, tileSize * 0.14f, (float)rotation, 35.0f, 2.0f, chevronColor);
     } else if (typeIdx == 2) {
