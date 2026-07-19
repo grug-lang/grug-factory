@@ -91,6 +91,11 @@ static int GetBeltLaneCapacity(Building* belt, int lane, Building* buildings, in
     return 4;
 }
 
+static Vector2 AngleToDir(float angleDeg) {
+    float rad = angleDeg * DEG2RAD;
+    return (Vector2){ sinf(rad), -cosf(rad) };
+}
+
 static void game_logic_tick(Building* buildings, int buildingCount, Item** items, int* itemCount, int* itemCapacity, int tileSize) {
     for (int i = 0; i < buildingCount; i++) {
         if (buildings[i].typeIdx == 1) {
@@ -130,6 +135,9 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
                     }
 
                     if (targetBeltIdx != -1) {
+                        Vector2 tDir = AngleToDir((float)buildings[targetBeltIdx].rotation);
+                        if (buildings[targetBeltIdx].x + (int)tDir.x == buildings[i].x && buildings[targetBeltIdx].y + (int)tDir.y == buildings[i].y) continue;
+
                         int targetLane = l;
 
                         int capacity = GetBeltLaneCapacity(&buildings[targetBeltIdx], targetLane, buildings, buildingCount);
@@ -205,11 +213,6 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
             }
         }
     }
-}
-
-static Vector2 AngleToDir(float angleDeg) {
-    float rad = angleDeg * DEG2RAD;
-    return (Vector2){ sinf(rad), -cosf(rad) };
 }
 
 static void DrawChevron(Vector2 tip, float armLength, float angleDeg, float spreadDeg, float thickness, Color color) {
