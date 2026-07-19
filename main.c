@@ -421,6 +421,17 @@ int main(void) {
             }
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
+                    int cx = originX + dx;
+                    int cy = originY + dy;
+
+                    for (int k = 0; k < itemCount; k++) {
+                        if ((int)floorf(items[k].x / tileSize) == cx && (int)floorf(items[k].y / tileSize) == cy) {
+                            for (int m = k; m < itemCount - 1; m++) items[m] = items[m+1];
+                            itemCount--;
+                            k--;
+                        }
+                    }
+
                     Building newB;
                     memset(&newB, 0, sizeof(Building));
                     newB.x = originX + dx;
@@ -432,18 +443,6 @@ int main(void) {
                     newB.rotation = currentHeldRotation;
                     newB.outputType = currentDrillOutputMode;
                     for(int l=0; l<2; l++) for(int j=0; j<5; j++) newB.belt_items[l][j] = -1.0f;
-
-                    if (currentBuildingIdx == 1) {
-                        for (int k = 0; k < itemCount; k++) {
-                            if ((int)floorf(items[k].x / tileSize) == newB.x && (int)floorf(items[k].y / tileSize) == newB.y) {
-                                newB.belt_items[1][0] = 0.5f;
-                                newB.belt_item_types[1][0] = items[k].type;
-                                for (int m = k; m < itemCount - 1; m++) items[m] = items[m+1];
-                                itemCount--;
-                                break;
-                            }
-                        }
-                    }
 
                     buildings[buildingCount++] = newB;
                 }
