@@ -186,13 +186,18 @@ int main(void) {
 
         bool mouseOverToolbar = (GetMouseY() > screenHeight - 70);
         bool canPlace = true;
+        int originX = 0, originY = 0;
 
         if (currentBuildingIdx != -1) {
             int size = BUILDING_TYPES[currentBuildingIdx].size;
+            float offset = (size - 1) / 2.0f;
+            originX = (int)floorf((mouseWorld.x / tileSize) - offset);
+            originY = (int)floorf((mouseWorld.y / tileSize) - offset);
+
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
-                    int cx = gridX + dx;
-                    int cy = gridY + dy;
+                    int cx = originX + dx;
+                    int cy = originY + dy;
                     for (int i = 0; i < buildingCount; i++) {
                         if (buildings[i].x == cx && buildings[i].y == cy) { canPlace = false; break; }
                     }
@@ -211,7 +216,7 @@ int main(void) {
             }
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
-                    buildings[buildingCount++] = (Building){ gridX + dx, gridY + dy, gridX, gridY, size, currentBuildingIdx, currentHeldRotation };
+                    buildings[buildingCount++] = (Building){ originX + dx, originY + dy, originX, originY, size, currentBuildingIdx, currentHeldRotation };
                 }
             }
         }
@@ -285,7 +290,7 @@ int main(void) {
         if (!mouseOverToolbar && currentBuildingIdx != -1) {
             Color base = BUILDING_TYPES[currentBuildingIdx].color;
             Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
-            DrawBuilding(currentBuildingIdx, gridX, gridY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint);
+            DrawBuilding(currentBuildingIdx, originX, originY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint);
         }
 
         EndMode2D();
