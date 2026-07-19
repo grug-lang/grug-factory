@@ -238,12 +238,21 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
                 if (targetBeltIdx != -1) {
                     int relRot = (buildings[targetBeltIdx].rotation - buildings[i].rotation + 360) % 360;
                     int l = (relRot == ROT_CCW) ? 0 : 1;
+
+                    float insertProgress = (relRot == 0) ? 0.0f : 0.5f;
+
                     int capacity = GetBeltLaneCapacity(&buildings[targetBeltIdx], l, buildings, buildingCount);
                     int lastItemIdx = -1;
-                    for (int j = 0; j < capacity; j++) if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
+                    for (int j = 0; j < capacity; j++) {
+                        if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f)
+                            lastItemIdx = j;
+                    }
 
-                    if (lastItemIdx < capacity - 1 && (lastItemIdx == -1 || buildings[targetBeltIdx].belt_items[l][lastItemIdx] >= 0.25f)) {
-                        buildings[targetBeltIdx].belt_items[l][lastItemIdx + 1] = 0.0f;
+                    if (lastItemIdx < capacity - 1 &&
+                        (lastItemIdx == -1 ||
+                        buildings[targetBeltIdx].belt_items[l][lastItemIdx] >= insertProgress + 0.25f)) {
+
+                        buildings[targetBeltIdx].belt_items[l][lastItemIdx + 1] = insertProgress;
                         buildings[targetBeltIdx].belt_item_types[l][lastItemIdx + 1] = buildings[i].outputType;
                         buildings[i].progress = 0;
                     }
