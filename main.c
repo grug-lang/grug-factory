@@ -11,17 +11,23 @@
 #define MAX_ACCUMULATED_MS 250.0
 #define MAX_TICKS_PER_FRAME 5
 
-static const Color TILE_COLORS[10] = {
-    { 230, 60, 60, 255 },
-    { 60, 200, 90, 255 },
-    { 60, 130, 230, 255 },
-    { 230, 190, 60, 255 },
-    { 190, 60, 230, 255 },
-    { 60, 220, 220, 255 },
-    { 230, 130, 60, 255 },
-    { 160, 160, 160, 255 },
-    { 90, 90, 220, 255 },
-    { 220, 90, 150, 255 },
+typedef struct {
+    const char* name;
+    Color color;
+    int size;
+} TileType;
+
+static const TileType TILE_TYPES[10] = {
+    { "Electric mining drill", { 130, 130, 130, 255 }, 3 },
+    { "Transport belt", { 170, 160, 110, 255 }, 1 },
+    { "Inserter", { 230, 200, 40, 255 }, 1 },
+    { "Assembling machine 1", { 130, 105, 90, 255 }, 3 },
+    { NULL, { 0, 0, 0, 0 }, 0 },
+    { NULL, { 0, 0, 0, 0 }, 0 },
+    { NULL, { 0, 0, 0, 0 }, 0 },
+    { NULL, { 0, 0, 0, 0 }, 0 },
+    { NULL, { 0, 0, 0, 0 }, 0 },
+    { NULL, { 0, 0, 0, 0 }, 0 },
 };
 
 typedef struct {
@@ -41,7 +47,7 @@ static double get_time_ms() {
 }
 
 static void game_logic_tick(void) {
-    // printf("foo\n");
+    // printf("tick\n");
 }
 
 int main(void) {
@@ -90,8 +96,8 @@ int main(void) {
             }
         }
 
-        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i)) currentTexIndex = i;
-        if (IsKeyPressed(KEY_ZERO)) currentTexIndex = 9;
+        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i) && TILE_TYPES[i].name != NULL) currentTexIndex = i;
+        if (IsKeyPressed(KEY_ZERO) && TILE_TYPES[9].name != NULL) currentTexIndex = 9;
 
         float moveSpeed = 500.0f / camera.zoom * dt;
         if (IsKeyDown(KEY_W)) camera.target.y -= moveSpeed;
@@ -119,7 +125,7 @@ int main(void) {
         bool canPlace = true;
 
         if (currentTexIndex != -1) {
-            int size = currentTexIndex + 1;
+            int size = TILE_TYPES[currentTexIndex].size;
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
                     int cx = gridX + dx;
@@ -134,7 +140,7 @@ int main(void) {
         }
 
         if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && currentTexIndex != -1 && canPlace) {
-            int size = currentTexIndex + 1;
+            int size = TILE_TYPES[currentTexIndex].size;
             if (tileCount + (size * size) > tileCapacity) {
                 tileCapacity = (tileCapacity == 0) ? (size * size) : tileCapacity * 2;
                 while (tileCount + (size * size) > tileCapacity) tileCapacity *= 2;
@@ -218,13 +224,13 @@ int main(void) {
 
             Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
 
-            DrawRectanglePro(dest, origin, (float)tiles[i].rotation, TILE_COLORS[tiles[i].texIdx]);
+            DrawRectanglePro(dest, origin, (float)tiles[i].rotation, TILE_TYPES[tiles[i].texIdx].color);
         }
 
         if (!mouseOverToolbar && currentTexIndex != -1) {
-            int size = currentTexIndex + 1;
+            int size = TILE_TYPES[currentTexIndex].size;
             Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
-            Color base = TILE_COLORS[currentTexIndex];
+            Color base = TILE_TYPES[currentTexIndex].color;
             Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
             for (int dx = 0; dx < size; dx++) {
                 for (int dy = 0; dy < size; dy++) {
@@ -260,8 +266,17 @@ int main(void) {
             int itemSize = 40;
             int x = startXPos + 5 + (i * 49);
             int y = startYPos + 5;
-            DrawRectangle(x, y, itemSize, itemSize, TILE_COLORS[i]);
-            if (i == currentTexIndex) DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
+            if (TILE_TYPES[i].name != NULL) {
+                DrawRectangle(x, y, itemSize, itemSize, TILE_TYPES[i].color);
+            } else {
+                DrawRectangle(x, y, itemSize, itemSize, (Color){ 45, 45, 45, 255 });
+            }
+            if (i == currentTexIndex) {
+                DrawRectangleLines(x - 2, y - 2, itemSize + 4, itemSize + 4, WHITE);
+                const char* heldName = TILE_TYPES[i].name;
+                int textW = MeasureText(heldName, 14);
+                DrawText(heldName, x + itemSize / 2 - textW / 2, y - 16, 14, RAYWHITE);
+            }
         }
 
         EndDrawing();
