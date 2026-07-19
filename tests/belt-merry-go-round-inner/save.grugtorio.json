@@ -1,0 +1,58 @@
+{
+	"version":	1,
+	"camera_target_x":	175.11189270019531,
+	"camera_target_y":	-57.842777252197266,
+	"camera_offset_x":	1280,
+	"camera_offset_y":	720,
+	"camera_zoom":	1.5,
+	"buildings":	[{
+			"x":	2,
+			"y":	-2,
+			"origin_x":	2,
+			"origin_y":	-2,
+			"size":	1,
+			"type_idx":	1,
+			"rotation":	180,
+			"progress":	0,
+			"output_type":	0,
+			"belt_items":	[-1, -1, -1, -1, -1, 0.23333333432674408, -1, -1, -1, -1],
+			"belt_item_types":	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		}, {
+			"x":	1,
+			"y":	-1,
+			"origin_x":	1,
+			"origin_y":	-1,
+			"size":	1,
+			"type_idx":	1,
+			"rotation":	0,
+			"progress":	0,
+			"output_type":	0,
+			"belt_items":	[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+			"belt_item_types":	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		}, {
+			"x":	1,
+			"y":	-2,
+			"origin_x":	1,
+			"origin_y":	-2,
+			"size":	1,
+			"type_idx":	1,
+			"rotation":	90,
+			"progress":	0,
+			"output_type":	0,
+			"belt_items":	[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+			"belt_item_types":	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		}, {
+			"x":	2,
+			"y":	-1,
+			"origin_x":	2,
+			"origin_y":	-1,
+			"size":	1,
+			"type_idx":	1,
+			"rotation":	270,
+			"progress":	0,
+			"output_type":	0,
+			"belt_items":	[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+			"belt_item_types":	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		}],
+	"items":	[]
+}
