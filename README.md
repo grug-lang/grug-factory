@@ -33,7 +33,7 @@ export LSAN_OPTIONS="suppressions=lsan.supp:print_suppressions=0"
 ### Running with valgrind
 
 ```sh
-valgrind build/grugtorio
+valgrind --leak-check=full build/grugtorio
 ```
 
 ## Testing
@@ -47,5 +47,5 @@ python tests.py
 You can also run tests with Valgrind by setting the `TEST_RUNNER` environment variable:
 
 ```bash
-TEST_RUNNER="valgrind --leak-check=full --error-exitcode=1" python tests.py
+TEST_RUNNER="valgrind --leak-check=full" python tests.py
 ```
