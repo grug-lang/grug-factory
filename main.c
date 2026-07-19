@@ -567,7 +567,7 @@ int main(void) {
                                     startAngle = (inRot == 0) ? 180.0f : (inRot == 90) ? 270.0f : (inRot == 180) ? 0.0f : 90.0f;
                                     endAngle = startAngle + 90.0f;
                                 } else {
-                                    startAngle = (inRot == 0) ? 0.0f : (inRot == 270) ? 90.0f : (inRot == 180) ? 180.0f : 270.0f;
+                                    startAngle = (inRot == 0) ? 0.0f : (inRot == 90) ? 90.0f : (inRot == 180) ? 180.0f : 270.0f;
                                     endAngle = startAngle - 90.0f;
                                 }
 
