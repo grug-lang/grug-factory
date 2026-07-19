@@ -248,6 +248,8 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
     if (typeIdx == 0) {
         Vector2 tip = { buildingCenter.x + dir.x * tileSize, buildingCenter.y + dir.y * tileSize };
         DrawChevron(tip, tileSize * 0.18f, (float)rotation, 35.0f, 2.0f, chevronColor);
+        DrawCircleV(buildingCenter, tileSize * 0.5f, (Color){ 30, 30, 30, 255 });
+        DrawCircleV(buildingCenter, tileSize * 0.45f, (Color){ 100, 150, 200, 255 });
     } else if (typeIdx == 1) {
         int inputRot = rotation;
         if (buildings) {
@@ -489,7 +491,7 @@ int main(void) {
                             float pOffset = prog - 0.5f;
                             float px = px_base + right.x * laneOffset * tileSize + dir.x * pOffset * tileSize;
                             float py = py_base + right.y * laneOffset * tileSize + dir.y * pOffset * tileSize;
-                            DrawCircleV((Vector2){ px, py }, tileSize * 0.125f, (Color){ 30, 30, 30, 255 });
+                            DrawCircleV((Vector2){ px, py }, tileSize * 0.125f, (Color){ 100, 150, 200, 255 });
                         }
                     }
                 }
@@ -497,7 +499,7 @@ int main(void) {
         }
 
         for (int i = 0; i < itemCount; i++) {
-            DrawCircleV((Vector2){ items[i].x, items[i].y }, tileSize * 0.125f, (Color){ 30, 30, 30, 255 });
+            DrawCircleV((Vector2){ items[i].x, items[i].y }, tileSize * 0.125f, (Color){ 100, 150, 200, 255 });
         }
 
         if (!mouseOverToolbar && currentBuildingIdx != -1) {
