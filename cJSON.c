@@ -28,18 +28,6 @@
 #define _CRT_SECURE_NO_DEPRECATE
 #endif
 
-/* MinGW gcc defines isnan and isinf on floats which causes conversion
- * warnings when using them with doubles, so we use the underlying
- * intrinsics directly */
-#if defined(__MINGW64__)
-#define is_nan(d) _isnan(d)
-#define is_inf(d) (!_finite(d))
-#else 
-#define is_nan(d) isnan(d)
-#define is_inf(d) isinf(d)
-#endif
-
-
 #ifdef __GNUC__
 #pragma GCC visibility push(default)
 #endif
@@ -621,7 +609,7 @@ static cJSON_bool print_number(const cJSON * const item, printbuffer * const out
     }
 
     /* This checks for NaN and Infinity */
-    if (is_nan(d) || is_inf(d))
+    if (isnan(d) || isinf(d))
     {
         length = sprintf((char*)number_buffer, "null");
     }
@@ -1508,10 +1496,6 @@ static cJSON_bool print_value(const cJSON * const item, printbuffer * const outp
 /* Build an array from input text. */
 static cJSON_bool parse_array(cJSON * const item, parse_buffer * const input_buffer)
 {
-	if (!input_buffer) {
-		fprintf(stderr, "UNREACHABLE");
-		exit(1);
-	}
     cJSON *head = NULL; /* head of the linked list */
     cJSON *current_item = NULL;
 
