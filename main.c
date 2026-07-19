@@ -12,6 +12,34 @@
 #define MAX_ACCUMULATED_MS 250.0
 #define MAX_TICKS_PER_FRAME 5
 
+typedef enum {
+    BUILDING_NONE = -1,
+    BUILDING_MINING_DRILL = 0,
+    BUILDING_TRANSPORT_BELT = 1,
+    BUILDING_INSERTER = 2,
+    BUILDING_STONE_FURNACE = 3,
+    BUILDING_ASSEMBLING_MACHINE_1 = 4
+} BuildingTypeEnum;
+
+typedef enum {
+    ITEM_IRON_ORE = 0,
+    ITEM_COAL = 1,
+    ITEM_COPPER_ORE = 2,
+    ITEM_TYPE_COUNT = 3
+} ItemTypeEnum;
+
+typedef enum {
+    DIR_UP = 0,
+    DIR_RIGHT = 90,
+    DIR_DOWN = 180,
+    DIR_LEFT = 270
+} Direction;
+
+typedef enum {
+    ROT_CW = 90,
+    ROT_CCW = 270
+} Rotation;
+
 typedef struct {
     const char* name;
     Color color;
@@ -37,24 +65,28 @@ typedef struct {
     int originX;
     int originY;
     int size;
-    int typeIdx;
+    BuildingTypeEnum typeIdx;
     int rotation;
     int progress;
     float belt_items[2][5];
-    int belt_item_types[2][5];
-    int outputType;
+    ItemTypeEnum belt_item_types[2][5];
+    ItemTypeEnum outputType;
 } Building;
 
 typedef struct {
     float x;
     float y;
-    int type;
+    ItemTypeEnum type;
 } Item;
 
-static Color GetItemColor(int type) {
-    if (type == 0) return (Color){ 100, 150, 200, 255 };
-    if (type == 1) return (Color){ 50, 50, 50, 255 };
-    return (Color){ 200, 150, 100, 255 };
+static Color GetItemColor(ItemTypeEnum type) {
+    switch (type) {
+        case ITEM_IRON_ORE: return (Color){ 100, 150, 200, 255 };
+        case ITEM_COAL: return (Color){ 50, 50, 50, 255 };
+        case ITEM_COPPER_ORE: return (Color){ 200, 150, 100, 255 };
+        case ITEM_TYPE_COUNT: abort();
+    }
+    abort();
 }
 
 static double get_time_ms() {
@@ -64,7 +96,7 @@ static double get_time_ms() {
 }
 
 static int GetFeederRotation(Building* belt, Building* buildings, int buildingCount) {
-    int dirs[4] = { 0, 90, 180, 270 };
+    int dirs[4] = { DIR_UP, DIR_RIGHT, DIR_DOWN, DIR_LEFT };
     for (int i = 0; i < 4; i++) {
         int rot = dirs[i];
         int dx = (int)roundf(sinf(rot * DEG2RAD));
@@ -72,7 +104,7 @@ static int GetFeederRotation(Building* belt, Building* buildings, int buildingCo
         int checkX = belt->x - dx;
         int checkY = belt->y - dy;
         for (int b = 0; b < buildingCount; b++) {
-            if (buildings[b].typeIdx == 1 && buildings[b].x == checkX && buildings[b].y == checkY && buildings[b].rotation == rot) {
+            if (buildings[b].typeIdx == BUILDING_TRANSPORT_BELT && buildings[b].x == checkX && buildings[b].y == checkY && buildings[b].rotation == rot) {
                 return rot;
             }
         }
@@ -87,7 +119,7 @@ static bool HasBeltFeedingFrom(int targetX, int targetY, int feederRot, Building
     int feederX = targetX - dx;
     int feederY = targetY - dy;
     for (int i = 0; i < count; i++) {
-        if (buildings[i].typeIdx == 1 && buildings[i].x == feederX && buildings[i].y == feederY && buildings[i].rotation == feederRot) {
+        if (buildings[i].typeIdx == BUILDING_TRANSPORT_BELT && buildings[i].x == feederX && buildings[i].y == feederY && buildings[i].rotation == feederRot) {
             return true;
         }
     }
@@ -97,10 +129,10 @@ static bool HasBeltFeedingFrom(int targetX, int targetY, int feederRot, Building
 static int GetBeltInputRotation(Building* belt, Building* buildings, int count) {
     int rot = belt->rotation;
     if (HasBeltFeedingFrom(belt->x, belt->y, rot, buildings, count)) return rot;
-    bool hasLeft = HasBeltFeedingFrom(belt->x, belt->y, (rot + 90) % 360, buildings, count);
-    bool hasRight = HasBeltFeedingFrom(belt->x, belt->y, (rot + 270) % 360, buildings, count);
-    if (hasLeft && !hasRight) return (rot + 90) % 360;
-    if (hasRight && !hasLeft) return (rot + 270) % 360;
+    bool hasLeft = HasBeltFeedingFrom(belt->x, belt->y, (rot + ROT_CW) % 360, buildings, count);
+    bool hasRight = HasBeltFeedingFrom(belt->x, belt->y, (rot + ROT_CCW) % 360, buildings, count);
+    if (hasLeft && !hasRight) return (rot + ROT_CW) % 360;
+    if (hasRight && !hasLeft) return (rot + ROT_CCW) % 360;
     return rot;
 }
 
@@ -109,8 +141,8 @@ static int GetBeltLaneCapacity(Building* belt, int lane, Building* buildings, in
     if (feederRot != -1) {
         int relRot = (belt->rotation - feederRot + 360) % 360;
         if (relRot == 0) return 4;
-        if (relRot == 90) return (lane == 1) ? 2 : 5;
-        if (relRot == 270) return (lane == 0) ? 2 : 5;
+        if (relRot == ROT_CW) return (lane == 1) ? 2 : 5;
+        if (relRot == ROT_CCW) return (lane == 0) ? 2 : 5;
     }
     return 4;
 }
@@ -122,7 +154,7 @@ static Vector2 AngleToDir(float angleDeg) {
 
 static void game_logic_tick(Building* buildings, int buildingCount, Item** items, int* itemCount, int* itemCapacity, int tileSize) {
     for (int i = 0; i < buildingCount; i++) {
-        if (buildings[i].typeIdx == 1) {
+        if (buildings[i].typeIdx == BUILDING_TRANSPORT_BELT) {
             for (int l = 0; l < 2; l++) {
                 int capacity = GetBeltLaneCapacity(&buildings[i], l, buildings, buildingCount);
                 for (int j = 0; j < capacity; j++) {
@@ -142,7 +174,7 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
     }
 
     for (int i = 0; i < buildingCount; i++) {
-        if (buildings[i].typeIdx == 1) {
+        if (buildings[i].typeIdx == BUILDING_TRANSPORT_BELT) {
             for (int l = 0; l < 2; l++) {
                 if (buildings[i].belt_items[l][0] >= 1.0f) {
                     int dirX = (int)roundf(sinf(buildings[i].rotation * DEG2RAD));
@@ -152,7 +184,7 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
 
                     int targetBeltIdx = -1;
                     for (int k = 0; k < buildingCount; k++) {
-                        if (buildings[k].typeIdx == 1 && buildings[k].x == tx && buildings[k].y == ty) {
+                        if (buildings[k].typeIdx == BUILDING_TRANSPORT_BELT && buildings[k].x == tx && buildings[k].y == ty) {
                             targetBeltIdx = k;
                             break;
                         }
@@ -187,7 +219,7 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
     }
 
     for (int i = 0; i < buildingCount; i++) {
-        if (buildings[i].typeIdx == 0 && buildings[i].x == buildings[i].originX && buildings[i].y == buildings[i].originY) {
+        if (buildings[i].typeIdx == BUILDING_MINING_DRILL && buildings[i].x == buildings[i].originX && buildings[i].y == buildings[i].originY) {
             if (buildings[i].progress < 120) buildings[i].progress++;
             if (buildings[i].progress >= 120) {
                 int dirX = (int)roundf(sinf(buildings[i].rotation * DEG2RAD));
@@ -197,7 +229,7 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
 
                 int targetBeltIdx = -1;
                 for (int j = 0; j < buildingCount; j++) {
-                    if (buildings[j].typeIdx == 1 && buildings[j].x == tx && buildings[j].y == ty) {
+                    if (buildings[j].typeIdx == BUILDING_TRANSPORT_BELT && buildings[j].x == tx && buildings[j].y == ty) {
                         targetBeltIdx = j;
                         break;
                     }
@@ -205,7 +237,7 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
 
                 if (targetBeltIdx != -1) {
                     int relRot = (buildings[targetBeltIdx].rotation - buildings[i].rotation + 360) % 360;
-                    int l = (relRot == 270) ? 0 : 1;
+                    int l = (relRot == ROT_CCW) ? 0 : 1;
                     int capacity = GetBeltLaneCapacity(&buildings[targetBeltIdx], l, buildings, buildingCount);
                     int lastItemIdx = -1;
                     for (int j = 0; j < capacity; j++) if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
@@ -262,7 +294,7 @@ static void DrawKinkedChevron(Vector2 a, Vector2 c, float kinkOffset, float thic
     DrawLineEx(mid, c, thickness, color);
 }
 
-static void DrawBuilding(int typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color, Building* buildings, int buildingCount, int progress, int outputType, bool drawOverlay) {
+static void DrawBuilding(BuildingTypeEnum typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color, Building* buildings, int buildingCount, int progress, ItemTypeEnum outputType, bool drawOverlay) {
     Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
     for (int dx = 0; dx < size; dx++) {
         for (int dy = 0; dy < size; dy++) {
@@ -283,7 +315,7 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
     Vector2 buildingCenter = { originPxX + sizePx / 2.0f, originPxY + sizePx / 2.0f };
     Color chevronColor = (Color){ 20, 20, 20, 220 };
 
-    if (typeIdx == 0) {
+    if (typeIdx == BUILDING_MINING_DRILL) {
         Vector2 tip = { buildingCenter.x + dir.x * tileSize, buildingCenter.y + dir.y * tileSize };
         DrawChevron(tip, tileSize * 0.18f, (float)rotation, 35.0f, 2.0f, chevronColor);
         DrawCircleV(buildingCenter, tileSize * 0.5f, (Color){ 30, 30, 30, 255 });
@@ -293,7 +325,7 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
         } else {
             DrawCircleSector(buildingCenter, tileSize * 0.45f, -90.0f, -90.0f + ((float)progress / 120.0f * 360.0f), 32, (Color){ 100, 150, 200, 255 });
         }
-    } else if (typeIdx == 1) {
+    } else if (typeIdx == BUILDING_TRANSPORT_BELT) {
         Building selfBelt = { .x = originX, .y = originY, .rotation = rotation };
         int inputRot = GetBeltInputRotation(&selfBelt, buildings, buildingCount);
         Vector2 inDir = AngleToDir((float)inputRot);
@@ -303,7 +335,7 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
 
         DrawChevron(startTip, tileSize * 0.14f, (float)inputRot, 35.0f, 2.0f, chevronColor);
         DrawChevron(endTip, tileSize * 0.14f, (float)rotation, 35.0f, 2.0f, chevronColor);
-    } else if (typeIdx == 2) {
+    } else if (typeIdx == BUILDING_INSERTER) {
         Vector2 tileCenter = { originPxX + tileSize / 2.0f, originPxY + tileSize / 2.0f };
         Vector2 edgePoint = { tileCenter.x + dir.x * tileSize * 0.5f, tileCenter.y + dir.y * tileSize * 0.5f };
         DrawKinkedChevron(tileCenter, edgePoint, tileSize * 0.125f, 3.0f, chevronColor);
@@ -382,9 +414,9 @@ int main(void) {
     Building* buildings = NULL;
     int buildingCount = 0;
     int buildingCapacity = 0;
-    int currentBuildingIdx = -1;
-    int currentHeldRotation = 0;
-    int currentDrillOutputMode = 0;
+    BuildingTypeEnum currentBuildingIdx = BUILDING_NONE;
+    int currentHeldRotation = DIR_UP;
+    ItemTypeEnum currentDrillOutputMode = ITEM_IRON_ORE;
 
     Item* items = NULL;
     int itemCount = 0;
@@ -417,7 +449,7 @@ int main(void) {
         if (IsKeyPressed(KEY_ZERO) && BUILDING_TYPES[9].name != NULL) currentBuildingIdx = 9;
 
         if (IsKeyPressed(KEY_O)) {
-            currentDrillOutputMode = (currentDrillOutputMode + 1) % 3;
+            currentDrillOutputMode = (currentDrillOutputMode + 1) % ITEM_TYPE_COUNT;
         }
 
         float moveSpeed = 500.0f / camera.zoom * dt;
@@ -446,7 +478,7 @@ int main(void) {
         bool canPlace = true;
         int originX = 0, originY = 0;
 
-        if (currentBuildingIdx != -1) {
+        if (currentBuildingIdx != BUILDING_NONE) {
             int size = BUILDING_TYPES[currentBuildingIdx].size;
             float offset = (size - 1) / 2.0f;
             originX = (int)floorf((mouseWorld.x / tileSize) - offset);
@@ -465,7 +497,7 @@ int main(void) {
             }
         }
 
-        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && currentBuildingIdx != -1 && canPlace) {
+        if (!mouseOverToolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && currentBuildingIdx != BUILDING_NONE && canPlace) {
             int size = BUILDING_TYPES[currentBuildingIdx].size;
             if (buildingCount + (size * size) > buildingCapacity) {
                 buildingCapacity = (buildingCapacity == 0) ? (size * size) : buildingCapacity * 2;
@@ -509,8 +541,8 @@ int main(void) {
         }
 
         if (IsKeyPressed(KEY_R)) {
-            int rotMod = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? 270 : 90;
-            if (currentBuildingIdx != -1) {
+            int rotMod = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? ROT_CCW : ROT_CW;
+            if (currentBuildingIdx != BUILDING_NONE) {
                 currentHeldRotation = (currentHeldRotation + rotMod) % 360;
             } else {
                 int targetOriginX = -1, targetOriginY = -1, targetSize = -1;
@@ -533,8 +565,8 @@ int main(void) {
         }
 
         if (IsKeyPressed(KEY_Q)) {
-            if (currentBuildingIdx != -1) {
-                currentBuildingIdx = -1;
+            if (currentBuildingIdx != BUILDING_NONE) {
+                currentBuildingIdx = BUILDING_NONE;
             } else {
                 for (int i = 0; i < buildingCount; i++) {
                     if (buildings[i].x == gridX && buildings[i].y == gridY) {
@@ -566,7 +598,7 @@ int main(void) {
         }
 
         for (int i = 0; i < buildingCount; i++) {
-            if (buildings[i].typeIdx == 1) {
+            if (buildings[i].typeIdx == BUILDING_TRANSPORT_BELT) {
                 int inRot = GetBeltInputRotation(&buildings[i], buildings, buildingCount);
                 int outRot = buildings[i].rotation;
                 Vector2 tileCenter = { (buildings[i].x + 0.5f) * tileSize, (buildings[i].y + 0.5f) * tileSize };
@@ -584,7 +616,7 @@ int main(void) {
                                 pos = (Vector2){ tileCenter.x + right.x * laneOffset * tileSize + dir.x * pOffset * tileSize, tileCenter.y + right.y * laneOffset * tileSize + dir.y * pOffset * tileSize };
                             } else {
                                 int relRot = (outRot - inRot + 360) % 360;
-                                bool isClockwise = (relRot == 90);
+                                bool isClockwise = (relRot == ROT_CW);
 
                                 // Pivot = the tile corner shared by the entry edge and exit edge of the turn.
                                 // Indexed by inRot/90; the CCW pivot for a given inRot is always the CW
@@ -602,10 +634,10 @@ int main(void) {
 
                                 float startAngle, endAngle;
                                 if (isClockwise) {
-                                    startAngle = (inRot == 0) ? 180.0f : (inRot == 90) ? 270.0f : (inRot == 180) ? 0.0f : 90.0f;
+                                    startAngle = (inRot == DIR_UP) ? 180.0f : (inRot == DIR_RIGHT) ? 270.0f : (inRot == DIR_DOWN) ? 0.0f : 90.0f;
                                     endAngle = startAngle + 90.0f;
                                 } else {
-                                    startAngle = (inRot == 0) ? 0.0f : (inRot == 90) ? 90.0f : (inRot == 180) ? 180.0f : 270.0f;
+                                    startAngle = (inRot == DIR_UP) ? 0.0f : (inRot == DIR_RIGHT) ? 90.0f : (inRot == DIR_DOWN) ? 180.0f : 270.0f;
                                     endAngle = startAngle - 90.0f;
                                 }
 
@@ -629,7 +661,7 @@ int main(void) {
             DrawCircleV((Vector2){ items[i].x, items[i].y }, tileSize * 0.125f, GetItemColor(items[i].type));
         }
 
-        if (!mouseOverToolbar && currentBuildingIdx != -1) {
+        if (!mouseOverToolbar && currentBuildingIdx != BUILDING_NONE) {
             Color base = BUILDING_TYPES[currentBuildingIdx].color;
             Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
             DrawBuilding(currentBuildingIdx, originX, originY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint, buildings, buildingCount, 0, currentDrillOutputMode, true);
