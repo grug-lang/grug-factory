@@ -35,3 +35,17 @@ export LSAN_OPTIONS="suppressions=lsan.supp:print_suppressions=0"
 ```sh
 valgrind build/grugtorio
 ```
+
+## Testing
+
+To run the test suite, execute:
+
+```bash
+python tests.py
+```
+
+You can also run tests with Valgrind by setting the `TEST_RUNNER` environment variable:
+
+```bash
+TEST_RUNNER="valgrind --leak-check=full --error-exitcode=1" python tests.py
+```

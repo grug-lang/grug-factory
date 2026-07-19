@@ -19,6 +19,10 @@ def run_tests():
     if not os.path.exists(TESTS_DIR):
         sys.exit(f"Error: Directory '{TESTS_DIR}' not found")
 
+    # Get optional runner (e.g., Valgrind) from environment variable
+    # If empty, runner will be an empty list []
+    runner = os.environ.get("TEST_RUNNER", "").split()
+
     test_dirs = [
         d for d in os.listdir(TESTS_DIR) if os.path.isdir(os.path.join(TESTS_DIR, d))
     ]
@@ -49,8 +53,8 @@ def run_tests():
         except json.JSONDecodeError:
             sys.exit(f"Error: Test '{test_name}' has malformed JSON in settings.json")
 
-        # Run the test
-        cmd = [
+        # Run the test with potential runner prefix
+        cmd = runner + [
             EXECUTABLE,
             "--input-save",
             input_save,
@@ -59,11 +63,13 @@ def run_tests():
             "--ticks",
             str(ticks),
         ]
+
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
             sys.exit(
-                f"Error: Test '{test_name}' failed to execute (return code {result.returncode})"
+                f"Error: Test '{test_name}' failed to execute (return code {result.returncode})\n"
+                f"Stderr: {result.stderr}"
             )
 
         # Load data for comparison

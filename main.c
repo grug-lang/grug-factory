@@ -589,7 +589,7 @@ int main(int argc, char** argv) {
             game_logic_tick(buildings, buildingCount, &items, &itemCount, &itemCapacity, tileSize);
         }
         if (output_save_path) SaveWorld(output_save_path, buildings, buildingCount, items, itemCount, camera);
-        return 0;
+        goto cleanup;
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
@@ -893,7 +893,9 @@ int main(int argc, char** argv) {
         SaveWorld(output_save_path, buildings, buildingCount, items, itemCount, camera);
     }
 
+    CloseWindow();
+
+cleanup:
     free(buildings);
     free(items);
-    CloseWindow();
 }
