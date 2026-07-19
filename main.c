@@ -310,6 +310,58 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
     }
 }
 
+static bool RemoveItemAtCursor(Vector2 mouseWorld, Item* items, int* itemCount, int tileSize) {
+    float pickupRadius = tileSize * 0.125f;
+
+    for (int i = 0; i < *itemCount; i++) {
+        float dx = items[i].x - mouseWorld.x;
+        float dy = items[i].y - mouseWorld.y;
+
+        if (dx * dx + dy * dy <= pickupRadius * pickupRadius) {
+            // Remove item by replacing it with the last item
+            items[i] = items[*itemCount - 1];
+            (*itemCount)--;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool RemoveBuildingAtCursor(int gridX, int gridY, Building* buildings, int* buildingCount) {
+    int targetOriginX = -1;
+    int targetOriginY = -1;
+    int targetSize = -1;
+
+    // Find the building tile under the cursor
+    for (int i = 0; i < *buildingCount; i++) {
+        if (buildings[i].x == gridX && buildings[i].y == gridY) {
+            targetOriginX = buildings[i].originX;
+            targetOriginY = buildings[i].originY;
+            targetSize = buildings[i].size;
+            break;
+        }
+    }
+
+    if (targetSize == -1) {
+        return false;
+    }
+
+    // Remove every tile belonging to the building
+    for (int i = *buildingCount - 1; i >= 0; i--) {
+        if (buildings[i].originX == targetOriginX &&
+            buildings[i].originY == targetOriginY &&
+            buildings[i].size == targetSize) {
+
+            buildings[i] = buildings[*buildingCount - 1];
+            (*buildingCount)--;
+        }
+    }
+
+    return true;
+}
+
 int main(void) {
     grug_default_settings();
 
@@ -451,22 +503,8 @@ int main(void) {
         }
 
         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-            int targetOriginX = -1, targetOriginY = -1, targetSize = -1;
-            for (int i = 0; i < buildingCount; i++) {
-                if (buildings[i].x == gridX && buildings[i].y == gridY) {
-                    targetOriginX = buildings[i].originX;
-                    targetOriginY = buildings[i].originY;
-                    targetSize = buildings[i].size;
-                    break;
-                }
-            }
-            if (targetSize != -1) {
-                for (int i = buildingCount - 1; i >= 0; i--) {
-                    if (buildings[i].originX == targetOriginX && buildings[i].originY == targetOriginY && buildings[i].size == targetSize) {
-                        buildings[i] = buildings[buildingCount - 1];
-                        buildingCount--;
-                    }
-                }
+            if (!RemoveItemAtCursor(mouseWorld, items, &itemCount, tileSize)) {
+                RemoveBuildingAtCursor(gridX, gridY, buildings, &buildingCount);
             }
         }
 
