@@ -178,7 +178,10 @@ void save_world(const char* path, building_t* buildings, int building_count, ite
 
 void load_world(const char* path, building_t** buildings, int* building_count, int* building_capacity, item_t** items, int* item_count, int* item_capacity, Camera2D* camera) {
     FILE *f = fopen(path, "r");
-    if (!f) return;
+    if (!f) {
+        fprintf(stderr, "Error: --input-save could not open %s\n", path);
+        exit(EXIT_FAILURE);
+    }
 
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
