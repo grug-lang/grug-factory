@@ -131,7 +131,7 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
 
     for (int i = 0; i < buildingCount; i++) {
         if (buildings[i].typeIdx == 0 && buildings[i].x == buildings[i].originX && buildings[i].y == buildings[i].originY) {
-            buildings[i].progress++;
+            if (buildings[i].progress < 120) buildings[i].progress++;
             if (buildings[i].progress >= 120) {
                 int dirX = (int)roundf(sinf(buildings[i].rotation * DEG2RAD));
                 int dirY = (int)roundf(-cosf(buildings[i].rotation * DEG2RAD));
@@ -146,36 +146,43 @@ static void game_logic_tick(Building* buildings, int buildingCount, Item** items
                     }
                 }
 
+                bool canDrop = false;
                 if (targetBeltIdx != -1) {
                     int l = 1;
                     int lastItemIdx = -1;
                     for (int j = 0; j < 4; j++) {
-                        if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) {
-                            lastItemIdx = j;
-                        }
+                        if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
                     }
-
-                    bool canInsert = false;
-                    if (lastItemIdx == -1) {
-                        canInsert = true;
-                    } else if (lastItemIdx < 3 && buildings[targetBeltIdx].belt_items[l][lastItemIdx] >= 0.25f) {
-                        canInsert = true;
-                    }
-
-                    if (canInsert) {
-                        buildings[targetBeltIdx].belt_items[l][lastItemIdx + 1] = 0.0f;
-                        buildings[i].progress = 0;
+                    if (lastItemIdx == -1 || (lastItemIdx < 3 && buildings[targetBeltIdx].belt_items[l][lastItemIdx] >= 0.25f)) {
+                        canDrop = true;
                     }
                 } else {
-                    buildings[i].progress = 0;
-                    float itemX = (tx + 0.5f - (float)dirX * 0.152f) * tileSize;
-                    float itemY = (ty + 0.5f - (float)dirY * 0.152f) * tileSize;
-
-                    if (*itemCount >= *itemCapacity) {
-                        *itemCapacity = (*itemCapacity == 0) ? 64 : *itemCapacity * 2;
-                        *items = realloc(*items, *itemCapacity * sizeof(Item));
+                    bool itemCollision = false;
+                    for (int k = 0; k < *itemCount; k++) {
+                        if ((int)floorf((*items)[k].x / tileSize) == tx && (int)floorf((*items)[k].y / tileSize) == ty) {
+                            itemCollision = true;
+                            break;
+                        }
                     }
-                    (*items)[(*itemCount)++] = (Item){ itemX, itemY };
+                    if (!itemCollision) canDrop = true;
+                }
+
+                if (canDrop) {
+                    if (targetBeltIdx != -1) {
+                        int l = 1;
+                        int lastItemIdx = -1;
+                        for (int j = 0; j < 4; j++) if (buildings[targetBeltIdx].belt_items[l][j] >= 0.0f) lastItemIdx = j;
+                        buildings[targetBeltIdx].belt_items[l][lastItemIdx + 1] = 0.0f;
+                    } else {
+                        float itemX = (tx + 0.5f - (float)dirX * 0.152f) * tileSize;
+                        float itemY = (ty + 0.5f - (float)dirY * 0.152f) * tileSize;
+                        if (*itemCount >= *itemCapacity) {
+                            *itemCapacity = (*itemCapacity == 0) ? 64 : *itemCapacity * 2;
+                            *items = realloc(*items, *itemCapacity * sizeof(Item));
+                        }
+                        (*items)[(*itemCount)++] = (Item){ itemX, itemY };
+                    }
+                    buildings[i].progress = 0;
                 }
             }
         }
@@ -224,7 +231,7 @@ static bool HasBeltFeedingFrom(int targetX, int targetY, int feederRot, Building
     return false;
 }
 
-static void DrawBuilding(int typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color, Building* buildings, int buildingCount) {
+static void DrawBuilding(int typeIdx, int originX, int originY, int size, int rotation, int tileSize, Color color, Building* buildings, int buildingCount, int progress) {
     Vector2 origin = { (float)tileSize / 2.0f, (float)tileSize / 2.0f };
     for (int dx = 0; dx < size; dx++) {
         for (int dy = 0; dy < size; dy++) {
@@ -249,7 +256,7 @@ static void DrawBuilding(int typeIdx, int originX, int originY, int size, int ro
         Vector2 tip = { buildingCenter.x + dir.x * tileSize, buildingCenter.y + dir.y * tileSize };
         DrawChevron(tip, tileSize * 0.18f, (float)rotation, 35.0f, 2.0f, chevronColor);
         DrawCircleV(buildingCenter, tileSize * 0.5f, (Color){ 30, 30, 30, 255 });
-        DrawCircleV(buildingCenter, tileSize * 0.45f, (Color){ 100, 150, 200, 255 });
+        DrawCircleSector(buildingCenter, tileSize * 0.45f, -90.0f, -90.0f + ((float)progress / 120.0f * 360.0f), 32, (Color){ 100, 150, 200, 255 });
     } else if (typeIdx == 1) {
         int inputRot = rotation;
         if (buildings) {
@@ -474,7 +481,7 @@ int main(void) {
 
         for (int i = 0; i < buildingCount; i++) {
             if (buildings[i].x != buildings[i].originX || buildings[i].y != buildings[i].originY) continue;
-            DrawBuilding(buildings[i].typeIdx, buildings[i].originX, buildings[i].originY, buildings[i].size, buildings[i].rotation, tileSize, BUILDING_TYPES[buildings[i].typeIdx].color, buildings, buildingCount);
+            DrawBuilding(buildings[i].typeIdx, buildings[i].originX, buildings[i].originY, buildings[i].size, buildings[i].rotation, tileSize, BUILDING_TYPES[buildings[i].typeIdx].color, buildings, buildingCount, buildings[i].progress);
         }
 
         for (int i = 0; i < buildingCount; i++) {
@@ -505,7 +512,7 @@ int main(void) {
         if (!mouseOverToolbar && currentBuildingIdx != -1) {
             Color base = BUILDING_TYPES[currentBuildingIdx].color;
             Color tint = canPlace ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
-            DrawBuilding(currentBuildingIdx, originX, originY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint, buildings, buildingCount);
+            DrawBuilding(currentBuildingIdx, originX, originY, BUILDING_TYPES[currentBuildingIdx].size, currentHeldRotation, tileSize, tint, buildings, buildingCount, 0);
         }
 
         EndMode2D();
