@@ -14,6 +14,16 @@
 #define MAX_ACCUMULATED_MS 250.0
 #define MAX_TICKS_PER_FRAME 5
 
+#define BELT_LANE_COUNT 2
+#define MAX_BELT_SLOTS 5
+#define BELT_ITEM_SPACING 64.0f
+#define BELT_LANE_LENGTH 256.0f
+#define BELT_TURN_INNER_LENGTH 106.0f
+#define BELT_TURN_OUTER_LENGTH 295.0f
+#define DRILL_CYCLE_TICKS 120
+#define TOOLBAR_SLOT_COUNT 10
+#define ITEM_RADIUS_FACTOR 0.125f
+
 typedef enum {
     BUILDING_NONE = -1,
     BUILDING_MINING_DRILL = 0,
@@ -70,8 +80,8 @@ typedef struct {
     building_type_e type_idx;
     int rotation;
     int progress;
-    float belt_items[2][5];
-    item_type_e belt_item_types[2][5];
+    float belt_items[BELT_LANE_COUNT][MAX_BELT_SLOTS];
+    item_type_e belt_item_types[BELT_LANE_COUNT][MAX_BELT_SLOTS];
     item_type_e output_type;
 } building_t;
 
@@ -80,6 +90,25 @@ typedef struct {
     float y;
     item_type_e type;
 } item_t;
+
+typedef struct {
+    building_t* buildings;
+    int building_count;
+    int building_capacity;
+    item_t* items;
+    int item_count;
+    int item_capacity;
+    Camera2D camera;
+    building_type_e current_building_idx;
+    int current_held_rotation;
+    item_type_e current_drill_output_mode;
+} game_state_t;
+
+typedef struct {
+    int origin_x;
+    int origin_y;
+    bool can_place;
+} placement_preview_t;
 
 static Color get_item_color(item_type_e type) {
     switch (type) {
@@ -91,8 +120,18 @@ static Color get_item_color(item_type_e type) {
     abort();
 }
 
-static bool is_tile_occupied(int x, int y, building_t* buildings, int count)
-{
+static Vector2 angle_to_dir(float angle_deg) {
+    float rad = angle_deg * DEG2RAD;
+    return (Vector2){ sinf(rad), -cosf(rad) };
+}
+
+static void direction_offset(int rotation, int* dx, int* dy) {
+    Vector2 d = angle_to_dir((float)rotation);
+    *dx = (int)roundf(d.x);
+    *dy = (int)roundf(d.y);
+}
+
+static bool is_tile_occupied(int x, int y, building_t* buildings, int count) {
     for (int i = 0; i < count; i++) {
         building_t* b = &buildings[i];
 
@@ -113,61 +152,86 @@ static double get_time_ms() {
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
 }
 
-void save_world(const char* path, building_t* buildings, int building_count, item_t* items, int item_count, Camera2D camera) {
-    cJSON *root = cJSON_CreateObject();
+static int json_int(cJSON* obj, const char* key) {
+    return cJSON_GetObjectItem(obj, key)->valueint;
+}
+
+static void json_get_float_opt(cJSON* root, const char* key, float* out) {
+    cJSON* item = cJSON_GetObjectItem(root, key);
+    if (item) *out = (float)item->valuedouble;
+}
+
+static cJSON* build_float_grid_array(float arr[BELT_LANE_COUNT][MAX_BELT_SLOTS]) {
+    cJSON* array = cJSON_CreateArray();
+    for (int l = 0; l < BELT_LANE_COUNT; l++)
+        for (int j = 0; j < MAX_BELT_SLOTS; j++)
+            cJSON_AddItemToArray(array, cJSON_CreateNumber(arr[l][j]));
+    return array;
+}
+
+static cJSON* build_int_grid_array(item_type_e arr[BELT_LANE_COUNT][MAX_BELT_SLOTS]) {
+    cJSON* array = cJSON_CreateArray();
+    for (int l = 0; l < BELT_LANE_COUNT; l++)
+        for (int j = 0; j < MAX_BELT_SLOTS; j++)
+            cJSON_AddItemToArray(array, cJSON_CreateNumber(arr[l][j]));
+    return array;
+}
+
+static void load_float_grid_array(cJSON* array, float dst[BELT_LANE_COUNT][MAX_BELT_SLOTS]) {
+    for (int l = 0; l < BELT_LANE_COUNT; l++)
+        for (int j = 0; j < MAX_BELT_SLOTS; j++)
+            dst[l][j] = (float)cJSON_GetArrayItem(array, l * MAX_BELT_SLOTS + j)->valuedouble;
+}
+
+static void load_int_grid_array(cJSON* array, item_type_e dst[BELT_LANE_COUNT][MAX_BELT_SLOTS]) {
+    for (int l = 0; l < BELT_LANE_COUNT; l++)
+        for (int j = 0; j < MAX_BELT_SLOTS; j++)
+            dst[l][j] = cJSON_GetArrayItem(array, l * MAX_BELT_SLOTS + j)->valueint;
+}
+
+static void save_world(const char* path, game_state_t* state) {
+    cJSON* root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "version", 1);
 
-    cJSON_AddNumberToObject(root, "camera_target_x", camera.target.x);
-    cJSON_AddNumberToObject(root, "camera_target_y", camera.target.y);
-    cJSON_AddNumberToObject(root, "camera_offset_x", camera.offset.x);
-    cJSON_AddNumberToObject(root, "camera_offset_y", camera.offset.y);
-    cJSON_AddNumberToObject(root, "camera_zoom", camera.zoom);
+    cJSON_AddNumberToObject(root, "camera_target_x", state->camera.target.x);
+    cJSON_AddNumberToObject(root, "camera_target_y", state->camera.target.y);
+    cJSON_AddNumberToObject(root, "camera_offset_x", state->camera.offset.x);
+    cJSON_AddNumberToObject(root, "camera_offset_y", state->camera.offset.y);
+    cJSON_AddNumberToObject(root, "camera_zoom", state->camera.zoom);
 
-    cJSON *b_array = cJSON_CreateArray();
-    for (int i = 0; i < building_count; i++) {
-        cJSON *b_obj = cJSON_CreateObject();
-        cJSON_AddNumberToObject(b_obj, "x", buildings[i].x);
-        cJSON_AddNumberToObject(b_obj, "y", buildings[i].y);
-        cJSON_AddNumberToObject(b_obj, "origin_x", buildings[i].origin_x);
-        cJSON_AddNumberToObject(b_obj, "origin_y", buildings[i].origin_y);
-        cJSON_AddNumberToObject(b_obj, "size", buildings[i].size);
-        cJSON_AddNumberToObject(b_obj, "type_idx", buildings[i].type_idx);
-        cJSON_AddNumberToObject(b_obj, "rotation", buildings[i].rotation);
-        cJSON_AddNumberToObject(b_obj, "progress", buildings[i].progress);
-        cJSON_AddNumberToObject(b_obj, "output_type", buildings[i].output_type);
+    cJSON* b_array = cJSON_CreateArray();
+    for (int i = 0; i < state->building_count; i++) {
+        building_t* b = &state->buildings[i];
+        cJSON* b_obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(b_obj, "x", b->x);
+        cJSON_AddNumberToObject(b_obj, "y", b->y);
+        cJSON_AddNumberToObject(b_obj, "origin_x", b->origin_x);
+        cJSON_AddNumberToObject(b_obj, "origin_y", b->origin_y);
+        cJSON_AddNumberToObject(b_obj, "size", b->size);
+        cJSON_AddNumberToObject(b_obj, "type_idx", b->type_idx);
+        cJSON_AddNumberToObject(b_obj, "rotation", b->rotation);
+        cJSON_AddNumberToObject(b_obj, "progress", b->progress);
+        cJSON_AddNumberToObject(b_obj, "output_type", b->output_type);
 
-        cJSON *items_array = cJSON_CreateArray();
-        for (int l = 0; l < 2; l++) {
-            for (int j = 0; j < 5; j++) {
-                cJSON_AddItemToArray(items_array, cJSON_CreateNumber(buildings[i].belt_items[l][j]));
-            }
-        }
-        cJSON_AddItemToObject(b_obj, "belt_items", items_array);
-
-        cJSON *types_array = cJSON_CreateArray();
-        for (int l = 0; l < 2; l++) {
-            for (int j = 0; j < 5; j++) {
-                cJSON_AddItemToArray(types_array, cJSON_CreateNumber(buildings[i].belt_item_types[l][j]));
-            }
-        }
-        cJSON_AddItemToObject(b_obj, "belt_item_types", types_array);
+        cJSON_AddItemToObject(b_obj, "belt_items", build_float_grid_array(b->belt_items));
+        cJSON_AddItemToObject(b_obj, "belt_item_types", build_int_grid_array(b->belt_item_types));
 
         cJSON_AddItemToArray(b_array, b_obj);
     }
     cJSON_AddItemToObject(root, "buildings", b_array);
 
-    cJSON *item_array = cJSON_CreateArray();
-    for (int i = 0; i < item_count; i++) {
-        cJSON *item_obj = cJSON_CreateObject();
-        cJSON_AddNumberToObject(item_obj, "x", (double)items[i].x);
-        cJSON_AddNumberToObject(item_obj, "y", (double)items[i].y);
-        cJSON_AddNumberToObject(item_obj, "type", items[i].type);
+    cJSON* item_array = cJSON_CreateArray();
+    for (int i = 0; i < state->item_count; i++) {
+        cJSON* item_obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item_obj, "x", (double)state->items[i].x);
+        cJSON_AddNumberToObject(item_obj, "y", (double)state->items[i].y);
+        cJSON_AddNumberToObject(item_obj, "type", state->items[i].type);
         cJSON_AddItemToArray(item_array, item_obj);
     }
     cJSON_AddItemToObject(root, "items", item_array);
 
-    char *out = cJSON_Print(root);
-    FILE *f = fopen(path, "w");
+    char* out = cJSON_Print(root);
+    FILE* f = fopen(path, "w");
     if (f) {
         fprintf(f, "%s", out);
         fclose(f);
@@ -176,8 +240,8 @@ void save_world(const char* path, building_t* buildings, int building_count, ite
     cJSON_Delete(root);
 }
 
-void load_world(const char* path, building_t** buildings, int* building_count, int* building_capacity, item_t** items, int* item_count, int* item_capacity, Camera2D* camera) {
-    FILE *f = fopen(path, "r");
+static void load_world(const char* path, game_state_t* state) {
+    FILE* f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Error: --input-save could not open %s\n", path);
         exit(EXIT_FAILURE);
@@ -186,70 +250,55 @@ void load_world(const char* path, building_t** buildings, int* building_count, i
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char *data = malloc(len + 1);
+    char* data = malloc(len + 1);
     fread(data, 1, len, f);
     data[len] = '\0';
     fclose(f);
 
-    cJSON *root = cJSON_Parse(data);
+    cJSON* root = cJSON_Parse(data);
     if (!root) { free(data); return; }
 
-    cJSON *ct_x = cJSON_GetObjectItem(root, "camera_target_x");
-    if (ct_x) camera->target.x = (float)ct_x->valuedouble;
-    cJSON *ct_y = cJSON_GetObjectItem(root, "camera_target_y");
-    if (ct_y) camera->target.y = (float)ct_y->valuedouble;
-    cJSON *co_x = cJSON_GetObjectItem(root, "camera_offset_x");
-    if (co_x) camera->offset.x = (float)co_x->valuedouble;
-    cJSON *co_y = cJSON_GetObjectItem(root, "camera_offset_y");
-    if (co_y) camera->offset.y = (float)co_y->valuedouble;
-    cJSON *cz = cJSON_GetObjectItem(root, "camera_zoom");
-    if (cz) camera->zoom = (float)cz->valuedouble;
+    json_get_float_opt(root, "camera_target_x", &state->camera.target.x);
+    json_get_float_opt(root, "camera_target_y", &state->camera.target.y);
+    json_get_float_opt(root, "camera_offset_x", &state->camera.offset.x);
+    json_get_float_opt(root, "camera_offset_y", &state->camera.offset.y);
+    json_get_float_opt(root, "camera_zoom", &state->camera.zoom);
 
-    cJSON *b_array = cJSON_GetObjectItem(root, "buildings");
+    cJSON* b_array = cJSON_GetObjectItem(root, "buildings");
     int count = cJSON_GetArraySize(b_array);
 
-    *building_count = count;
-    *building_capacity = count;
-    *buildings = realloc(*buildings, sizeof(building_t) * (*building_capacity));
+    state->building_count = count;
+    state->building_capacity = count;
+    state->buildings = realloc(state->buildings, sizeof(building_t) * state->building_capacity);
 
     for (int i = 0; i < count; i++) {
-        cJSON *b_obj = cJSON_GetArrayItem(b_array, i);
-        (*buildings)[i].x = cJSON_GetObjectItem(b_obj, "x")->valueint;
-        (*buildings)[i].y = cJSON_GetObjectItem(b_obj, "y")->valueint;
-        (*buildings)[i].origin_x = cJSON_GetObjectItem(b_obj, "origin_x")->valueint;
-        (*buildings)[i].origin_y = cJSON_GetObjectItem(b_obj, "origin_y")->valueint;
-        (*buildings)[i].size = cJSON_GetObjectItem(b_obj, "size")->valueint;
-        (*buildings)[i].type_idx = cJSON_GetObjectItem(b_obj, "type_idx")->valueint;
-        (*buildings)[i].rotation = cJSON_GetObjectItem(b_obj, "rotation")->valueint;
-        (*buildings)[i].progress = cJSON_GetObjectItem(b_obj, "progress")->valueint;
-        (*buildings)[i].output_type = cJSON_GetObjectItem(b_obj, "output_type")->valueint;
+        cJSON* b_obj = cJSON_GetArrayItem(b_array, i);
+        building_t* b = &state->buildings[i];
+        b->x = json_int(b_obj, "x");
+        b->y = json_int(b_obj, "y");
+        b->origin_x = json_int(b_obj, "origin_x");
+        b->origin_y = json_int(b_obj, "origin_y");
+        b->size = json_int(b_obj, "size");
+        b->type_idx = json_int(b_obj, "type_idx");
+        b->rotation = json_int(b_obj, "rotation");
+        b->progress = json_int(b_obj, "progress");
+        b->output_type = json_int(b_obj, "output_type");
 
-        cJSON *items_array = cJSON_GetObjectItem(b_obj, "belt_items");
-        for (int l = 0; l < 2; l++) {
-            for (int j = 0; j < 5; j++) {
-                (*buildings)[i].belt_items[l][j] = cJSON_GetArrayItem(items_array, l * 5 + j)->valuedouble;
-            }
-        }
-
-        cJSON *types_array = cJSON_GetObjectItem(b_obj, "belt_item_types");
-        for (int l = 0; l < 2; l++) {
-            for (int j = 0; j < 5; j++) {
-                (*buildings)[i].belt_item_types[l][j] = cJSON_GetArrayItem(types_array, l * 5 + j)->valueint;
-            }
-        }
+        load_float_grid_array(cJSON_GetObjectItem(b_obj, "belt_items"), b->belt_items);
+        load_int_grid_array(cJSON_GetObjectItem(b_obj, "belt_item_types"), b->belt_item_types);
     }
 
-    cJSON *item_array = cJSON_GetObjectItem(root, "items");
+    cJSON* item_array = cJSON_GetObjectItem(root, "items");
     if (item_array) {
-        int count = cJSON_GetArraySize(item_array);
-        *item_count = count;
-        *item_capacity = count;
-        *items = realloc(*items, sizeof(item_t) * (*item_capacity));
-        for (int i = 0; i < count; i++) {
-            cJSON *item_obj = cJSON_GetArrayItem(item_array, i);
-            (*items)[i].x = (float)cJSON_GetObjectItem(item_obj, "x")->valuedouble;
-            (*items)[i].y = (float)cJSON_GetObjectItem(item_obj, "y")->valuedouble;
-            (*items)[i].type = cJSON_GetObjectItem(item_obj, "type")->valueint;
+        int item_count = cJSON_GetArraySize(item_array);
+        state->item_count = item_count;
+        state->item_capacity = item_count;
+        state->items = realloc(state->items, sizeof(item_t) * state->item_capacity);
+        for (int i = 0; i < item_count; i++) {
+            cJSON* item_obj = cJSON_GetArrayItem(item_array, i);
+            state->items[i].x = (float)cJSON_GetObjectItem(item_obj, "x")->valuedouble;
+            state->items[i].y = (float)cJSON_GetObjectItem(item_obj, "y")->valuedouble;
+            state->items[i].type = json_int(item_obj, "type");
         }
     }
 
@@ -257,18 +306,51 @@ void load_world(const char* path, building_t** buildings, int* building_count, i
     free(data);
 }
 
-static bool has_belt_feeding_from(int target_x, int target_y, int feeder_rot, building_t* buildings, int count) {
-    if (!buildings) return false;
-    int dx = (int)roundf(sinf(feeder_rot * DEG2RAD));
-    int dy = (int)roundf(-cosf(feeder_rot * DEG2RAD));
-    int feeder_x = target_x - dx;
-    int feeder_y = target_y - dy;
+static int find_belt_at(int x, int y, building_t* buildings, int count) {
     for (int i = 0; i < count; i++) {
-        if (buildings[i].type_idx == BUILDING_TRANSPORT_BELT && buildings[i].x == feeder_x && buildings[i].y == feeder_y && buildings[i].rotation == feeder_rot) {
-            return true;
+        if (buildings[i].type_idx == BUILDING_TRANSPORT_BELT && buildings[i].x == x && buildings[i].y == y) {
+            return i;
         }
     }
-    return false;
+    return -1;
+}
+
+static int find_belt_with_rotation(int x, int y, int rotation, building_t* buildings, int count) {
+    for (int i = 0; i < count; i++) {
+        if (buildings[i].type_idx == BUILDING_TRANSPORT_BELT &&
+            buildings[i].x == x && buildings[i].y == y &&
+            buildings[i].rotation == rotation) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool belt_faces_away_from(int belt_idx, int from_x, int from_y, building_t* buildings) {
+    Vector2 t_dir = angle_to_dir((float)buildings[belt_idx].rotation);
+    return (buildings[belt_idx].x + (int)t_dir.x == from_x && buildings[belt_idx].y + (int)t_dir.y == from_y);
+}
+
+static int get_forward_belt_target(building_t* belt, int self_x, int self_y, building_t* buildings, int count) {
+    int dx, dy;
+    direction_offset(belt->rotation, &dx, &dy);
+    int tx = self_x + dx;
+    int ty = self_y + dy;
+
+    int idx = find_belt_at(tx, ty, buildings, count);
+    if (idx != -1 && belt_faces_away_from(idx, self_x, self_y, buildings)) {
+        idx = -1;
+    }
+    return idx;
+}
+
+static bool has_belt_feeding_from(int target_x, int target_y, int feeder_rot, building_t* buildings, int count) {
+    if (!buildings) return false;
+    int dx, dy;
+    direction_offset(feeder_rot, &dx, &dy);
+    int feeder_x = target_x - dx;
+    int feeder_y = target_y - dy;
+    return find_belt_with_rotation(feeder_x, feeder_y, feeder_rot, buildings, count) != -1;
 }
 
 static int get_belt_input_rotation(building_t* belt, building_t* buildings, int count) {
@@ -285,244 +367,199 @@ static float get_belt_lane_length(building_t* belt, int lane, building_t* buildi
     int in_rot = get_belt_input_rotation(belt, buildings, building_count);
     int out_rot = belt->rotation;
     if (in_rot == out_rot) {
-        return 256.0f;
+        return BELT_LANE_LENGTH;
     }
     int rel_rot = (out_rot - in_rot + 360) % 360;
     if (rel_rot == ROT_CW) {
-        return (lane == 1) ? 106.0f : 295.0f;
+        return (lane == 1) ? BELT_TURN_INNER_LENGTH : BELT_TURN_OUTER_LENGTH;
     } else if (rel_rot == ROT_CCW) {
-        return (lane == 0) ? 106.0f : 295.0f;
+        return (lane == 0) ? BELT_TURN_INNER_LENGTH : BELT_TURN_OUTER_LENGTH;
     }
-    return 256.0f;
+    return BELT_LANE_LENGTH;
 }
 
-static Vector2 angle_to_dir(float angle_deg) {
-    float rad = angle_deg * DEG2RAD;
-    return (Vector2){ sinf(rad), -cosf(rad) };
+static int find_last_occupied_slot(const float lane[MAX_BELT_SLOTS]) {
+    int last = -1;
+    for (int j = 0; j < MAX_BELT_SLOTS; j++) {
+        if (lane[j] >= 0.0f) last = j;
+    }
+    return last;
 }
 
-static void game_logic_tick(building_t* buildings, int building_count, item_t** items, int* item_count, int* item_capacity, int tile_size) {
-    for (int i = 0; i < building_count; i++) {
-        if (buildings[i].type_idx == BUILDING_TRANSPORT_BELT) {
-            for (int l = 0; l < 2; l++) {
-                float L_i = get_belt_lane_length(&buildings[i], l, buildings, building_count);
+static void append_item(game_state_t* state, item_t item) {
+    if (state->item_count >= state->item_capacity) {
+        state->item_capacity = (state->item_capacity == 0) ? 64 : state->item_capacity * 2;
+        state->items = realloc(state->items, state->item_capacity * sizeof(item_t));
+    }
+    state->items[state->item_count++] = item;
+}
 
-                int dir_x = (int)roundf(sinf(buildings[i].rotation * DEG2RAD));
-                int dir_y = (int)roundf(-cosf(buildings[i].rotation * DEG2RAD));
-                int tx = buildings[i].x + dir_x;
-                int ty = buildings[i].y + dir_y;
+static void advance_belt_lane(building_t* buildings, int building_count, int belt_idx, int lane) {
+    building_t* belt = &buildings[belt_idx];
+    float lane_len = get_belt_lane_length(belt, lane, buildings, building_count);
+    int target_idx = get_forward_belt_target(belt, belt->x, belt->y, buildings, building_count);
 
-                int target_belt_idx = -1;
-                for (int k = 0; k < building_count; k++) {
-                    if (buildings[k].type_idx == BUILDING_TRANSPORT_BELT && buildings[k].x == tx && buildings[k].y == ty) {
-                        target_belt_idx = k;
-                        break;
-                    }
-                }
+    float max_d_0 = lane_len;
+    if (target_idx != -1) {
+        float target_lane_len = get_belt_lane_length(&buildings[target_idx], lane, buildings, building_count);
+        int target_last_j = find_last_occupied_slot(buildings[target_idx].belt_items[lane]);
+        if (target_last_j != -1) {
+            float d_target_last = buildings[target_idx].belt_items[lane][target_last_j] * target_lane_len;
+            max_d_0 = lane_len - (BELT_ITEM_SPACING - d_target_last);
+        } else {
+            max_d_0 = lane_len + BELT_ITEM_SPACING;
+        }
+    }
 
-                if (target_belt_idx != -1) {
-                    Vector2 t_dir = angle_to_dir((float)buildings[target_belt_idx].rotation);
-                    if (buildings[target_belt_idx].x + (int)t_dir.x == buildings[i].x && buildings[target_belt_idx].y + (int)t_dir.y == buildings[i].y) {
-                        target_belt_idx = -1;
-                    }
-                }
+    for (int j = 0; j < MAX_BELT_SLOTS; j++) {
+        if (belt->belt_items[lane][j] < 0.0f) continue;
 
-                float max_d_0 = L_i;
-                if (target_belt_idx != -1) {
-                    float L_target = get_belt_lane_length(&buildings[target_belt_idx], l, buildings, building_count);
-                    int target_last_j = -1;
-                    for (int j = 0; j < 5; j++) {
-                        if (buildings[target_belt_idx].belt_items[l][j] >= 0.0f) {
-                            target_last_j = j;
-                        }
-                    }
-                    if (target_last_j != -1) {
-                        float d_target_last = buildings[target_belt_idx].belt_items[l][target_last_j] * L_target;
-                        max_d_0 = L_i - (64.0f - d_target_last);
-                    } else {
-                        max_d_0 = L_i + 64.0f;
-                    }
-                }
+        float current_d = belt->belt_items[lane][j] * lane_len;
+        float limit_d = (j == 0) ? max_d_0 : (belt->belt_items[lane][j - 1] * lane_len - BELT_ITEM_SPACING);
 
-                for (int j = 0; j < 5; j++) {
-                    if (buildings[i].belt_items[l][j] >= 0.0f) {
-                        float current_d = buildings[i].belt_items[l][j] * L_i;
-                        float limit_d;
-                        if (j == 0) {
-                            limit_d = max_d_0;
-                        } else {
-                            float prev_d = buildings[i].belt_items[l][j - 1] * L_i;
-                            limit_d = prev_d - 64.0f;
-                        }
+        float new_d = current_d + (BELT_LANE_LENGTH / UPS);
+        if (new_d > limit_d) new_d = limit_d;
+        if (new_d < 0.0f) new_d = 0.0f;
 
-                        float new_d = current_d + (256.0f / UPS);
-                        if (new_d > limit_d) {
-                            new_d = limit_d;
-                        }
-                        if (new_d < 0.0f) {
-                            new_d = 0.0f;
-                        }
+        belt->belt_items[lane][j] = new_d / lane_len;
+    }
+}
 
-                        buildings[i].belt_items[l][j] = new_d / L_i;
-                    }
-                }
+static void transfer_belt_lane(building_t* buildings, int building_count, int belt_idx, int lane) {
+    building_t* belt = &buildings[belt_idx];
+    if (belt->belt_items[lane][0] < 1.0f) return;
+
+    int target_idx = get_forward_belt_target(belt, belt->x, belt->y, buildings, building_count);
+    if (target_idx == -1) {
+        belt->belt_items[lane][0] = 1.0f;
+        return;
+    }
+
+    float lane_len = get_belt_lane_length(belt, lane, buildings, building_count);
+
+    int source_in_rot = get_belt_input_rotation(belt, buildings, building_count);
+    bool source_is_turning = (source_in_rot != belt->rotation);
+
+    building_t* target = &buildings[target_idx];
+    int target_in_rot = get_belt_input_rotation(target, buildings, building_count);
+    bool target_is_turning = (target_in_rot != target->rotation);
+
+    int target_lane = lane;
+    if (!source_is_turning && !target_is_turning && (belt->rotation != target->rotation)) {
+        target_lane = !target_lane;
+    }
+
+    float target_lane_len = get_belt_lane_length(target, target_lane, buildings, building_count);
+    int target_last_j = find_last_occupied_slot(target->belt_items[target_lane]);
+
+    float excess_d = (belt->belt_items[lane][0] * lane_len) - lane_len;
+    if (excess_d < 0.0f) excess_d = 0.0f;
+
+    bool can_transfer = false;
+    float start_d_target = excess_d;
+
+    if (target_last_j == -1) {
+        can_transfer = true;
+    } else {
+        float d_target_last = target->belt_items[target_lane][target_last_j] * target_lane_len;
+        if (d_target_last >= BELT_ITEM_SPACING) {
+            can_transfer = (target_last_j < MAX_BELT_SLOTS - 1);
+            if (start_d_target > d_target_last - BELT_ITEM_SPACING) {
+                start_d_target = d_target_last - BELT_ITEM_SPACING;
             }
         }
     }
 
-    for (int i = 0; i < building_count; i++) {
-        if (buildings[i].type_idx == BUILDING_TRANSPORT_BELT) {
-            for (int l = 0; l < 2; l++) {
-                if (buildings[i].belt_items[l][0] >= 1.0f) {
-                    int dir_x = (int)roundf(sinf(buildings[i].rotation * DEG2RAD));
-                    int dir_y = (int)roundf(-cosf(buildings[i].rotation * DEG2RAD));
-                    int tx = buildings[i].x + dir_x;
-                    int ty = buildings[i].y + dir_y;
+    if (!can_transfer) return;
 
-                    int target_belt_idx = -1;
-                    for (int k = 0; k < building_count; k++) {
-                        if (buildings[k].type_idx == BUILDING_TRANSPORT_BELT && buildings[k].x == tx && buildings[k].y == ty) {
-                            target_belt_idx = k;
-                            break;
-                        }
-                    }
+    int new_j = target_last_j + 1;
+    target->belt_items[target_lane][new_j] = start_d_target / target_lane_len;
+    target->belt_item_types[target_lane][new_j] = belt->belt_item_types[lane][0];
 
-                    if (target_belt_idx != -1) {
-                        Vector2 t_dir = angle_to_dir((float)buildings[target_belt_idx].rotation);
-                        if (buildings[target_belt_idx].x + (int)t_dir.x == buildings[i].x && buildings[target_belt_idx].y + (int)t_dir.y == buildings[i].y) {
-                            target_belt_idx = -1;
-                        }
-                    }
+    for (int j = 0; j < MAX_BELT_SLOTS - 1; j++) {
+        belt->belt_items[lane][j] = belt->belt_items[lane][j + 1];
+        belt->belt_item_types[lane][j] = belt->belt_item_types[lane][j + 1];
+    }
+    belt->belt_items[lane][MAX_BELT_SLOTS - 1] = -1.0f;
+}
 
-                    if (target_belt_idx != -1) {
-                        float L_i = get_belt_lane_length(&buildings[i], l, buildings, building_count);
+static void run_drill(game_state_t* state, int drill_idx, int tile_size) {
+    building_t* buildings = state->buildings;
+    int building_count = state->building_count;
+    building_t* drill = &buildings[drill_idx];
 
-                        int source_in_rot = get_belt_input_rotation(&buildings[i], buildings, building_count);
-                        bool source_is_turning = (source_in_rot != buildings[i].rotation);
+    if (drill->progress < DRILL_CYCLE_TICKS) drill->progress++;
+    if (drill->progress < DRILL_CYCLE_TICKS) return;
 
-                        int target_in_rot = get_belt_input_rotation(&buildings[target_belt_idx], buildings, building_count);
-                        bool target_is_turning = (target_in_rot != buildings[target_belt_idx].rotation);
+    int dx, dy;
+    direction_offset(drill->rotation, &dx, &dy);
+    int center_x = drill->origin_x + drill->size / 2;
+    int center_y = drill->origin_y + drill->size / 2;
+    int tx = center_x + dx * 2;
+    int ty = center_y + dy * 2;
 
-                        int target_lane = l;
-                        if (!source_is_turning && !target_is_turning && (buildings[i].rotation != buildings[target_belt_idx].rotation)) {
-                            target_lane = !target_lane;
-                        }
+    int target_idx = find_belt_at(tx, ty, buildings, building_count);
 
-                        float L_target = get_belt_lane_length(&buildings[target_belt_idx], target_lane, buildings, building_count);
+    if (target_idx != -1) {
+        building_t* target = &buildings[target_idx];
+        int rel_rot = (target->rotation - drill->rotation + 360) % 360;
+        int lane = (rel_rot == ROT_CCW) ? 0 : 1;
 
-                        int target_last_j = -1;
-                        for (int j = 0; j < 5; j++) {
-                            if (buildings[target_belt_idx].belt_items[target_lane][j] >= 0.0f) {
-                                target_last_j = j;
-                            }
-                        }
+        float target_lane_len = get_belt_lane_length(target, lane, buildings, building_count);
+        float insert_d = (rel_rot == 0) ? 32.0f : 103.0f;
 
-                        float excess_d = (buildings[i].belt_items[l][0] * L_i) - L_i;
-                        if (excess_d < 0.0f) excess_d = 0.0f;
+        int last_item_idx = find_last_occupied_slot(target->belt_items[lane]);
 
-                        bool can_transfer = false;
-                        float start_d_target = excess_d;
+        bool can_insert = false;
+        if (last_item_idx == -1) {
+            can_insert = true;
+        } else if (last_item_idx < MAX_BELT_SLOTS - 2) {
+            float d_last = target->belt_items[lane][last_item_idx] * target_lane_len;
+            if (d_last >= insert_d + BELT_ITEM_SPACING) can_insert = true;
+        }
 
-                        if (target_last_j == -1) {
-                            can_transfer = true;
-                        } else {
-                            float d_target_last = buildings[target_belt_idx].belt_items[target_lane][target_last_j] * L_target;
-                            if (d_target_last >= 64.0f) {
-                                can_transfer = (target_last_j < 4);
-                                if (start_d_target > d_target_last - 64.0f) {
-                                    start_d_target = d_target_last - 64.0f;
-                                }
-                            }
-                        }
-
-                        if (can_transfer) {
-                            int new_j = target_last_j + 1;
-                            buildings[target_belt_idx].belt_items[target_lane][new_j] = start_d_target / L_target;
-                            buildings[target_belt_idx].belt_item_types[target_lane][new_j] = buildings[i].belt_item_types[l][0];
-
-                            for (int j = 0; j < 4; j++) {
-                                buildings[i].belt_items[l][j] = buildings[i].belt_items[l][j + 1];
-                                buildings[i].belt_item_types[l][j] = buildings[i].belt_item_types[l][j + 1];
-                            }
-                            buildings[i].belt_items[l][4] = -1.0f;
-                        }
-                    } else {
-                        buildings[i].belt_items[l][0] = 1.0f;
-                    }
-                }
+        if (can_insert) {
+            target->belt_items[lane][last_item_idx + 1] = insert_d / target_lane_len;
+            target->belt_item_types[lane][last_item_idx + 1] = drill->output_type;
+            drill->progress = 0;
+        }
+    } else {
+        bool building_collision = is_tile_occupied(tx, ty, buildings, building_count);
+        bool item_collision = false;
+        for (int k = 0; k < state->item_count; k++) {
+            if ((int)floorf(state->items[k].x / tile_size) == tx && (int)floorf(state->items[k].y / tile_size) == ty) {
+                item_collision = true;
+                break;
             }
+        }
+
+        if (!item_collision && !building_collision) {
+            float item_x = (tx + 0.5f - (float)dx * 0.152f) * tile_size;
+            float item_y = (ty + 0.5f - (float)dy * 0.152f) * tile_size;
+            append_item(state, (item_t){ item_x, item_y, drill->output_type });
+            drill->progress = 0;
+        }
+    }
+}
+
+static void game_logic_tick(game_state_t* state, int tile_size) {
+    for (int i = 0; i < state->building_count; i++) {
+        if (state->buildings[i].type_idx != BUILDING_TRANSPORT_BELT) continue;
+        for (int l = 0; l < BELT_LANE_COUNT; l++) {
+            advance_belt_lane(state->buildings, state->building_count, i, l);
         }
     }
 
-    for (int i = 0; i < building_count; i++) {
-        if (buildings[i].type_idx == BUILDING_MINING_DRILL) {
-            if (buildings[i].progress < 120) buildings[i].progress++;
-            if (buildings[i].progress >= 120) {
-                int dir_x = (int)roundf(sinf(buildings[i].rotation * DEG2RAD));
-                int dir_y = (int)roundf(-cosf(buildings[i].rotation * DEG2RAD));
-                int center_x = buildings[i].origin_x + buildings[i].size / 2;
-                int center_y = buildings[i].origin_y + buildings[i].size / 2;
+    for (int i = 0; i < state->building_count; i++) {
+        if (state->buildings[i].type_idx != BUILDING_TRANSPORT_BELT) continue;
+        for (int l = 0; l < BELT_LANE_COUNT; l++) {
+            transfer_belt_lane(state->buildings, state->building_count, i, l);
+        }
+    }
 
-                int tx = center_x + dir_x * 2;
-                int ty = center_y + dir_y * 2;
-
-                int target_belt_idx = -1;
-                for (int j = 0; j < building_count; j++) {
-                    if (buildings[j].type_idx == BUILDING_TRANSPORT_BELT && buildings[j].x == tx && buildings[j].y == ty) {
-                        target_belt_idx = j;
-                        break;
-                    }
-                }
-
-                if (target_belt_idx != -1) {
-                    int rel_rot = (buildings[target_belt_idx].rotation - buildings[i].rotation + 360) % 360;
-                    int l = (rel_rot == ROT_CCW) ? 0 : 1;
-
-                    float L_target = get_belt_lane_length(&buildings[target_belt_idx], l, buildings, building_count);
-                    float insert_d = (rel_rot == 0) ? 32.0f : 103.0f;
-
-                    int last_item_idx = -1;
-                    for (int j = 0; j < 5; j++) {
-                        if (buildings[target_belt_idx].belt_items[l][j] >= 0.0f)
-                            last_item_idx = j;
-                    }
-
-                    bool can_insert = false;
-                    if (last_item_idx == -1) {
-                        can_insert = true;
-                    } else if (last_item_idx < 3) {
-                        float d_last = buildings[target_belt_idx].belt_items[l][last_item_idx] * L_target;
-                        if (d_last >= insert_d + 64.0f) {
-                            can_insert = true;
-                        }
-                    }
-
-                    if (can_insert) {
-                        buildings[target_belt_idx].belt_items[l][last_item_idx + 1] = insert_d / L_target;
-                        buildings[target_belt_idx].belt_item_types[l][last_item_idx + 1] = buildings[i].output_type;
-                        buildings[i].progress = 0;
-                    }
-                } else {
-                    bool building_collision = is_tile_occupied(tx, ty, buildings, building_count);
-                    bool item_collision = false;
-                    for (int k = 0; k < *item_count; k++) {
-                        if ((int)floorf((*items)[k].x / tile_size) == tx && (int)floorf((*items)[k].y / tile_size) == ty) {
-                            item_collision = true; break;
-                        }
-                    }
-
-                    if (!item_collision && !building_collision) {
-                        float item_x = (tx + 0.5f - (float)dir_x * 0.152f) * tile_size;
-                        float item_y = (ty + 0.5f - (float)dir_y * 0.152f) * tile_size;
-                        if (*item_count >= *item_capacity) {
-                            *item_capacity = (*item_capacity == 0) ? 64 : *item_capacity * 2;
-                            *items = realloc(*items, *item_capacity * sizeof(item_t));
-                        }
-                        (*items)[(*item_count)++] = (item_t){ item_x, item_y, buildings[i].output_type };
-                        buildings[i].progress = 0;
-                    }
-                }
-            }
+    for (int i = 0; i < state->building_count; i++) {
+        if (state->buildings[i].type_idx == BUILDING_MINING_DRILL) {
+            run_drill(state, i, tile_size);
         }
     }
 }
@@ -646,8 +683,150 @@ static void draw_building(building_type_e type_idx, int origin_x, int origin_y, 
     draw_building_overlay(type_idx, origin_x, origin_y, size, rotation, tile_size, buildings, building_count, progress, output_type, draw_overlay);
 }
 
+static Vector2 compute_belt_item_position(building_t* belt, building_t* buildings, int building_count, int lane, float prog, int tile_size) {
+    int in_rot = get_belt_input_rotation(belt, buildings, building_count);
+    int out_rot = belt->rotation;
+    Vector2 tile_center = { (belt->x + 0.5f) * tile_size, (belt->y + 0.5f) * tile_size };
+    float lane_offset = (lane == 0) ? -0.25f : 0.25f;
+
+    if (in_rot == out_rot) {
+        Vector2 dir = angle_to_dir((float)out_rot);
+        Vector2 right = { -dir.y, dir.x };
+        float p_offset = prog - 0.5f;
+        return (Vector2){
+            tile_center.x + right.x * lane_offset * tile_size + dir.x * p_offset * tile_size,
+            tile_center.y + right.y * lane_offset * tile_size + dir.y * p_offset * tile_size
+        };
+    }
+
+    int rel_rot = (out_rot - in_rot + 360) % 360;
+    bool is_clockwise = (rel_rot == ROT_CW);
+
+    int idx = (in_rot / 90) % 4;
+    if (!is_clockwise) idx = (idx + 1) % 4;
+    static const float pivot_xs[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    static const float pivot_ys[4] = { 1.0f, 1.0f, 0.0f, 0.0f };
+    float pivot_x = pivot_xs[idx];
+    float pivot_y = pivot_ys[idx];
+
+    float r;
+    if (is_clockwise) r = (lane == 1) ? 0.25f * tile_size : 0.75f * tile_size;
+    else r = (lane == 0) ? 0.25f * tile_size : 0.75f * tile_size;
+
+    float start_angle, end_angle;
+    if (is_clockwise) {
+        start_angle = (in_rot == DIR_UP) ? 180.0f : (in_rot == DIR_RIGHT) ? 270.0f : (in_rot == DIR_DOWN) ? 0.0f : 90.0f;
+        end_angle = start_angle + 90.0f;
+    } else {
+        start_angle = (in_rot == DIR_UP) ? 0.0f : (in_rot == DIR_RIGHT) ? 90.0f : (in_rot == DIR_DOWN) ? 180.0f : 270.0f;
+        end_angle = start_angle - 90.0f;
+    }
+
+    float a = start_angle + (end_angle - start_angle) * prog;
+
+    Vector2 tile_top_left = { (float)belt->x * tile_size, (float)belt->y * tile_size };
+    return (Vector2){
+        (tile_top_left.x + pivot_x * tile_size) + cosf(a * DEG2RAD) * r,
+        (tile_top_left.y + pivot_y * tile_size) + sinf(a * DEG2RAD) * r
+    };
+}
+
+static void render_grid(Camera2D camera, int screen_width, int screen_height, int tile_size) {
+    Vector2 screen_top_left = GetScreenToWorld2D((Vector2){ 0, 0 }, camera);
+    Vector2 screen_bottom_right = GetScreenToWorld2D((Vector2){ screen_width, screen_height }, camera);
+    int start_x = (int)floorf(screen_top_left.x / tile_size) - 1;
+    int end_x = (int)floorf(screen_bottom_right.x / tile_size) + 1;
+    int start_y = (int)floorf(screen_top_left.y / tile_size) - 1;
+    int end_y = (int)floorf(screen_bottom_right.y / tile_size) + 1;
+
+    Color grid_color = (Color){ 45, 45, 45, 255 };
+    for (int x = start_x; x <= end_x; x++) DrawLine(x * tile_size, start_y * tile_size, x * tile_size, end_y * tile_size, grid_color);
+    for (int y = start_y; y <= end_y; y++) DrawLine(start_x * tile_size, y * tile_size, end_x * tile_size, y * tile_size, grid_color);
+}
+
+static void render_buildings_base(building_t* buildings, int count, int tile_size) {
+    for (int i = 0; i < count; i++) {
+        draw_building_base(buildings[i].origin_x, buildings[i].origin_y, buildings[i].size, buildings[i].rotation, tile_size, BUILDING_TYPES[buildings[i].type_idx].color);
+    }
+}
+
+static void render_buildings_overlay(building_t* buildings, int count, int tile_size) {
+    for (int i = 0; i < count; i++) {
+        draw_building_overlay(buildings[i].type_idx, buildings[i].origin_x, buildings[i].origin_y, buildings[i].size, buildings[i].rotation, tile_size, buildings, count, buildings[i].progress, buildings[i].output_type, false);
+    }
+}
+
+static void render_belt_items(building_t* buildings, int count, int tile_size) {
+    for (int i = 0; i < count; i++) {
+        if (buildings[i].type_idx != BUILDING_TRANSPORT_BELT) continue;
+
+        for (int l = 0; l < BELT_LANE_COUNT; l++) {
+            for (int j = 0; j < MAX_BELT_SLOTS; j++) {
+                float prog = buildings[i].belt_items[l][j];
+                if (prog < 0.0f) continue;
+
+                Vector2 pos = compute_belt_item_position(&buildings[i], buildings, count, l, prog, tile_size);
+                DrawCircleV(pos, tile_size * ITEM_RADIUS_FACTOR, get_item_color(buildings[i].belt_item_types[l][j]));
+            }
+        }
+    }
+}
+
+static void render_ground_items(item_t* items, int count, int tile_size) {
+    for (int i = 0; i < count; i++) {
+        DrawCircleV((Vector2){ items[i].x, items[i].y }, tile_size * ITEM_RADIUS_FACTOR, get_item_color(items[i].type));
+    }
+}
+
+static void render_placement_ghost(game_state_t* state, placement_preview_t preview, bool mouse_over_toolbar, int tile_size) {
+    if (mouse_over_toolbar || state->current_building_idx == BUILDING_NONE) return;
+
+    Color base = BUILDING_TYPES[state->current_building_idx].color;
+    Color tint = preview.can_place ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
+    draw_building(state->current_building_idx, preview.origin_x, preview.origin_y, BUILDING_TYPES[state->current_building_idx].size, state->current_held_rotation, tile_size, tint, state->buildings, state->building_count, 0, state->current_drill_output_mode, true);
+}
+
+static void render_hud(game_state_t* state, int grid_x, int grid_y, int screen_width, float dt, int ticks_this_frame) {
+    DrawText(TextFormat("Building Coord: (%d, %d)", grid_x, grid_y), 10, 10, 20, RAYWHITE);
+    DrawText(TextFormat("Total Buildings: %d", state->building_count), 10, 35, 20, GRAY);
+    DrawText(TextFormat("Zoom: %.2fx", state->camera.zoom), 10, 60, 20, GRAY);
+
+    float fps = (dt > 0.0f) ? (1.0f / dt) : 0.0f;
+    float ups = (dt > 0.0f) ? ((float)ticks_this_frame / dt) : 0.0f;
+    const char* perf_text = TextFormat("FPS/UPS = %.1f/%.1f", fps, ups);
+    DrawText(perf_text, screen_width - MeasureText(perf_text, 20) - 10, 10, 20, RAYWHITE);
+}
+
+static void render_hotbar(building_type_e current_building_idx, int screen_width, int screen_height) {
+    int bar_w = 500;
+    int bar_h = 50;
+    int start_x_pos = (screen_width - bar_w) / 2;
+    int start_y_pos = screen_height - bar_h - 10;
+
+    int item_size = 40;
+    int slot_width = bar_w / TOOLBAR_SLOT_COUNT;
+
+    DrawRectangle(start_x_pos, start_y_pos, bar_w, bar_h, (Color){ 30, 30, 30, 255 });
+
+    for (int i = 0; i < TOOLBAR_SLOT_COUNT; i++) {
+        int x = start_x_pos + i * slot_width + (slot_width - item_size) / 2;
+        int y = start_y_pos + (bar_h - item_size) / 2;
+
+        Color slot_color = (BUILDING_TYPES[i].name != NULL) ? BUILDING_TYPES[i].color : (Color){ 45, 45, 45, 255 };
+        DrawRectangle(x, y, item_size, item_size, slot_color);
+
+        if (i == current_building_idx) {
+            DrawRectangleLines(x - 2, y - 2, item_size + 4, item_size + 4, WHITE);
+
+            const char* held_name = BUILDING_TYPES[i].name;
+            int text_w = MeasureText(held_name, 14);
+            DrawText(held_name, x + item_size / 2 - text_w / 2, y - 16, 14, RAYWHITE);
+        }
+    }
+}
+
 static bool remove_item_at_cursor(Vector2 mouse_world, item_t* items, int* item_count, int tile_size) {
-    float pickup_radius = tile_size * 0.125f;
+    float pickup_radius = tile_size * ITEM_RADIUS_FACTOR;
 
     for (int i = 0; i < *item_count; i++) {
         float dx = items[i].x - mouse_world.x;
@@ -664,21 +843,14 @@ static bool remove_item_at_cursor(Vector2 mouse_world, item_t* items, int* item_
     return false;
 }
 
-static bool remove_building_at_cursor(
-    int grid_x,
-    int grid_y,
-    building_t* buildings,
-    int* building_count)
-{
+static bool remove_building_at_cursor(int grid_x, int grid_y, building_t* buildings, int* building_count) {
     for (int i = 0; i < *building_count; i++) {
-
         building_t* b = &buildings[i];
 
         if (grid_x >= b->origin_x &&
             grid_x < b->origin_x + b->size &&
             grid_y >= b->origin_y &&
-            grid_y < b->origin_y + b->size)
-        {
+            grid_y < b->origin_y + b->size) {
             buildings[i] = buildings[*building_count - 1];
             (*building_count)--;
             return true;
@@ -688,43 +860,175 @@ static bool remove_building_at_cursor(
     return false;
 }
 
-int main(int argc, char** argv) {
-    const int tile_size = 64;
-    building_t* buildings = NULL;
-    int building_count = 0;
-    int building_capacity = 0;
-    building_type_e current_building_idx = BUILDING_NONE;
-    int current_held_rotation = DIR_UP;
-    item_type_e current_drill_output_mode = ITEM_IRON_ORE;
-    item_t* items = NULL;
-    int item_count = 0;
-    int item_capacity = 0;
+static placement_preview_t compute_placement_preview(game_state_t* state, Vector2 mouse_world, int tile_size) {
+    placement_preview_t preview = { 0, 0, true };
+    if (state->current_building_idx == BUILDING_NONE) return preview;
 
-    Camera2D camera = { 0 };
-    camera.target = (Vector2){ 0.0f, 0.0f };
-    camera.offset = (Vector2){ 0, 0 };
-    camera.zoom = 1.0f;
+    int size = BUILDING_TYPES[state->current_building_idx].size;
+    float offset = (size - 1) / 2.0f;
+    preview.origin_x = (int)floorf((mouse_world.x / tile_size) - offset);
+    preview.origin_y = (int)floorf((mouse_world.y / tile_size) - offset);
 
-    char* output_save_path = NULL;
-    int run_ticks = -1;
+    for (int dx = 0; dx < size; dx++) {
+        for (int dy = 0; dy < size; dy++) {
+            int cx = preview.origin_x + dx;
+            int cy = preview.origin_y + dy;
+            if (is_tile_occupied(cx, cy, state->buildings, state->building_count)) {
+                preview.can_place = false;
+                break;
+            }
+        }
+        if (!preview.can_place) break;
+    }
+
+    return preview;
+}
+
+static void try_place_building(game_state_t* state, placement_preview_t preview, int tile_size) {
+    int size = BUILDING_TYPES[state->current_building_idx].size;
+
+    if (state->building_count + 1 > state->building_capacity) {
+        state->building_capacity = (state->building_capacity == 0) ? 1 : state->building_capacity * 2;
+        state->buildings = realloc(state->buildings, state->building_capacity * sizeof(building_t));
+    }
+
+    for (int dx = 0; dx < size; dx++) {
+        for (int dy = 0; dy < size; dy++) {
+            int cx = preview.origin_x + dx;
+            int cy = preview.origin_y + dy;
+            for (int k = 0; k < state->item_count; k++) {
+                if ((int)floorf(state->items[k].x / tile_size) == cx && (int)floorf(state->items[k].y / tile_size) == cy) {
+                    for (int m = k; m < state->item_count - 1; m++) state->items[m] = state->items[m + 1];
+                    state->item_count--;
+                    k--;
+                }
+            }
+        }
+    }
+
+    building_t new_b;
+    memset(&new_b, 0, sizeof(building_t));
+
+    new_b.x = preview.origin_x;
+    new_b.y = preview.origin_y;
+    new_b.origin_x = preview.origin_x;
+    new_b.origin_y = preview.origin_y;
+    new_b.size = size;
+    new_b.type_idx = state->current_building_idx;
+    new_b.rotation = state->current_held_rotation;
+    new_b.output_type = state->current_drill_output_mode;
+
+    for (int l = 0; l < BELT_LANE_COUNT; l++)
+        for (int j = 0; j < MAX_BELT_SLOTS; j++)
+            new_b.belt_items[l][j] = -1.0f;
+
+    state->buildings[state->building_count++] = new_b;
+}
+
+static void handle_placement_input(game_state_t* state, placement_preview_t preview, bool mouse_over_toolbar, int tile_size) {
+    if (!mouse_over_toolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && state->current_building_idx != BUILDING_NONE && preview.can_place) {
+        try_place_building(state, preview, tile_size);
+    }
+}
+
+static void handle_removal_input(game_state_t* state, Vector2 mouse_world, int grid_x, int grid_y, int tile_size) {
+    if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        if (!remove_item_at_cursor(mouse_world, state->items, &state->item_count, tile_size)) {
+            remove_building_at_cursor(grid_x, grid_y, state->buildings, &state->building_count);
+        }
+    }
+}
+
+static void handle_rotation_input(game_state_t* state, int grid_x, int grid_y) {
+    if (!IsKeyPressed(KEY_R)) return;
+
+    int rot_mod = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? ROT_CCW : ROT_CW;
+    if (state->current_building_idx != BUILDING_NONE) {
+        state->current_held_rotation = (state->current_held_rotation + rot_mod) % 360;
+        return;
+    }
+
+    for (int i = 0; i < state->building_count; i++) {
+        building_t* b = &state->buildings[i];
+        if (grid_x >= b->origin_x && grid_x < b->origin_x + b->size &&
+            grid_y >= b->origin_y && grid_y < b->origin_y + b->size) {
+            b->rotation = (b->rotation + rot_mod) % 360;
+        }
+    }
+}
+
+static void handle_pickup_input(game_state_t* state, int grid_x, int grid_y) {
+    if (!IsKeyPressed(KEY_Q)) return;
+
+    if (state->current_building_idx != BUILDING_NONE) {
+        state->current_building_idx = BUILDING_NONE;
+        return;
+    }
+
+    for (int i = 0; i < state->building_count; i++) {
+        building_t* b = &state->buildings[i];
+        if (grid_x >= b->origin_x && grid_x < b->origin_x + b->size &&
+            grid_y >= b->origin_y && grid_y < b->origin_y + b->size) {
+            state->current_building_idx = b->type_idx;
+            break;
+        }
+    }
+}
+
+static void handle_hotbar_shortcuts(game_state_t* state) {
+    for (int i = 0; i < 9; i++) {
+        if (IsKeyPressed(KEY_ONE + i) && BUILDING_TYPES[i].name != NULL) state->current_building_idx = i;
+    }
+    if (IsKeyPressed(KEY_ZERO) && BUILDING_TYPES[9].name != NULL) state->current_building_idx = 9;
+}
+
+static void handle_output_mode_toggle(game_state_t* state) {
+    if (IsKeyPressed(KEY_O)) {
+        state->current_drill_output_mode = (state->current_drill_output_mode + 1) % ITEM_TYPE_COUNT;
+    }
+}
+
+static void handle_camera_pan(game_state_t* state, float dt) {
+    float move_speed = 500.0f / state->camera.zoom * dt;
+    if (IsKeyDown(KEY_W)) state->camera.target.y -= move_speed;
+    if (IsKeyDown(KEY_S)) state->camera.target.y += move_speed;
+    if (IsKeyDown(KEY_A)) state->camera.target.x -= move_speed;
+    if (IsKeyDown(KEY_D)) state->camera.target.x += move_speed;
+    if (IsKeyPressed(KEY_F)) ToggleFullscreen();
+}
+
+static void handle_camera_zoom(game_state_t* state) {
+    float wheel = GetMouseWheelMove();
+    if (wheel == 0.0f) return;
+
+    Vector2 mouse_world_pos = GetScreenToWorld2D(GetMousePosition(), state->camera);
+    state->camera.zoom += wheel * 0.125f;
+    if (state->camera.zoom < 0.25f) state->camera.zoom = 0.25f;
+    if (state->camera.zoom > 2.0f) state->camera.zoom = 2.0f;
+    Vector2 mouse_world_pos_new = GetScreenToWorld2D(GetMousePosition(), state->camera);
+    state->camera.target.x += (mouse_world_pos.x - mouse_world_pos_new.x);
+    state->camera.target.y += (mouse_world_pos.y - mouse_world_pos_new.y);
+}
+
+static void parse_args(int argc, char** argv, game_state_t* state, char** output_save_path, int* run_ticks) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--input-save") == 0) {
             if (i + 1 < argc) {
-                load_world(argv[++i], &buildings, &building_count, &building_capacity, &items, &item_count, &item_capacity, &camera);
+                load_world(argv[++i], state);
             } else {
                 fprintf(stderr, "Error: --input-save requires a file path argument.\n");
                 exit(EXIT_FAILURE);
             }
         } else if (strcmp(argv[i], "--output-save") == 0) {
             if (i + 1 < argc) {
-                output_save_path = argv[++i];
+                *output_save_path = argv[++i];
             } else {
                 fprintf(stderr, "Error: --output-save requires a file path argument.\n");
                 exit(EXIT_FAILURE);
             }
         } else if (strcmp(argv[i], "--ticks") == 0) {
             if (i + 1 < argc) {
-                run_ticks = atoi(argv[++i]);
+                *run_ticks = atoi(argv[++i]);
             } else {
                 fprintf(stderr, "Error: --ticks requires an integer argument.\n");
                 exit(EXIT_FAILURE);
@@ -734,22 +1038,25 @@ int main(int argc, char** argv) {
             exit(EXIT_FAILURE);
         }
     }
+}
 
-    if (run_ticks > 0) {
-        for (int t = 0; t < run_ticks; t++) {
-            game_logic_tick(buildings, building_count, &items, &item_count, &item_capacity, tile_size);
-        }
-        if (output_save_path) save_world(output_save_path, buildings, building_count, items, item_count, camera);
-        goto cleanup;
+static void run_headless(game_state_t* state, int run_ticks, int tile_size, const char* output_save_path) {
+    for (int t = 0; t < run_ticks; t++) {
+        game_logic_tick(state, tile_size);
     }
+    if (output_save_path) save_world(output_save_path, state);
+}
 
+static void run_interactive(game_state_t* state, int tile_size, const char* output_save_path) {
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(0, 0, "grugtorio");
 
     int screen_width = GetScreenWidth();
     int screen_height = GetScreenHeight();
 
-    if (camera.offset.x == 0) camera.offset = (Vector2){ screen_width / 2.0f, screen_height / 2.0f };
+    if (state->camera.offset.x == 0) {
+        state->camera.offset = (Vector2){ screen_width / 2.0f, screen_height / 2.0f };
+    }
 
     SetTargetFPS(60);
 
@@ -767,7 +1074,7 @@ int main(int argc, char** argv) {
 
         int ticks_this_frame = 0;
         while (accumulator >= UPDATE_DT_MS) {
-            game_logic_tick(buildings, building_count, &items, &item_count, &item_capacity, tile_size);
+            game_logic_tick(state, tile_size);
             accumulator -= UPDATE_DT_MS;
             ticks_this_frame++;
             if (ticks_this_frame >= MAX_TICKS_PER_FRAME) {
@@ -776,287 +1083,69 @@ int main(int argc, char** argv) {
             }
         }
 
-        for (int i = 0; i < 9; i++) if (IsKeyPressed(KEY_ONE + i) && BUILDING_TYPES[i].name != NULL) current_building_idx = i;
-        if (IsKeyPressed(KEY_ZERO) && BUILDING_TYPES[9].name != NULL) current_building_idx = 9;
+        handle_hotbar_shortcuts(state);
+        handle_output_mode_toggle(state);
+        handle_camera_pan(state, dt);
+        handle_camera_zoom(state);
 
-        if (IsKeyPressed(KEY_O)) {
-            current_drill_output_mode = (current_drill_output_mode + 1) % ITEM_TYPE_COUNT;
-        }
-
-        float move_speed = 500.0f / camera.zoom * dt;
-        if (IsKeyDown(KEY_W)) camera.target.y -= move_speed;
-        if (IsKeyDown(KEY_S)) camera.target.y += move_speed;
-        if (IsKeyDown(KEY_A)) camera.target.x -= move_speed;
-        if (IsKeyDown(KEY_D)) camera.target.x += move_speed;
-        if (IsKeyPressed(KEY_F)) ToggleFullscreen();
-
-        float wheel = GetMouseWheelMove();
-        if (wheel != 0.0f) {
-            Vector2 mouse_world_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-            camera.zoom += wheel * 0.125f;
-            if (camera.zoom < 0.25f) camera.zoom = 0.25f;
-            if (camera.zoom > 2.0f) camera.zoom = 2.0f;
-            Vector2 mouse_world_pos_new = GetScreenToWorld2D(GetMousePosition(), camera);
-            camera.target.x += (mouse_world_pos.x - mouse_world_pos_new.x);
-            camera.target.y += (mouse_world_pos.y - mouse_world_pos_new.y);
-        }
-
-        Vector2 mouse_world = GetScreenToWorld2D(GetMousePosition(), camera);
+        Vector2 mouse_world = GetScreenToWorld2D(GetMousePosition(), state->camera);
         int grid_x = (int)floorf(mouse_world.x / tile_size);
         int grid_y = (int)floorf(mouse_world.y / tile_size);
 
         bool mouse_over_toolbar = (GetMouseY() > screen_height - 70);
-        bool can_place = true;
-        int origin_x = 0, origin_y = 0;
+        placement_preview_t preview = compute_placement_preview(state, mouse_world, tile_size);
 
-        if (current_building_idx != BUILDING_NONE) {
-            int size = BUILDING_TYPES[current_building_idx].size;
-            float offset = (size - 1) / 2.0f;
-            origin_x = (int)floorf((mouse_world.x / tile_size) - offset);
-            origin_y = (int)floorf((mouse_world.y / tile_size) - offset);
-
-            for (int dx = 0; dx < size; dx++) {
-                for (int dy = 0; dy < size; dy++) {
-                    int cx = origin_x + dx;
-                    int cy = origin_y + dy;
-                    if (is_tile_occupied(cx, cy, buildings, building_count)) {
-                        can_place = false; break;
-                    }
-                }
-                if (!can_place) break;
-            }
-        }
-
-        if (!mouse_over_toolbar && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && current_building_idx != BUILDING_NONE && can_place) {
-            int size = BUILDING_TYPES[current_building_idx].size;
-            if (building_count + 1 > building_capacity) {
-                building_capacity = (building_capacity == 0) ? 1 : building_capacity * 2;
-                buildings = realloc(buildings, building_capacity * sizeof(building_t));
-            }
-
-            for (int dx = 0; dx < size; dx++) {
-                for (int dy = 0; dy < size; dy++) {
-                    int cx = origin_x + dx;
-                    int cy = origin_y + dy;
-                    for (int k = 0; k < item_count; k++) {
-                        if ((int)floorf(items[k].x / tile_size) == cx && (int)floorf(items[k].y / tile_size) == cy) {
-                            for (int m = k; m < item_count - 1; m++) items[m] = items[m+1];
-                            item_count--;
-                            k--;
-                        }
-                    }
-                }
-            }
-
-            building_t new_b;
-            memset(&new_b, 0, sizeof(building_t));
-
-            new_b.x = origin_x;
-            new_b.y = origin_y;
-            new_b.origin_x = origin_x;
-            new_b.origin_y = origin_y;
-            new_b.size = size;
-            new_b.type_idx = current_building_idx;
-            new_b.rotation = current_held_rotation;
-            new_b.output_type = current_drill_output_mode;
-
-            for (int l = 0; l < 2; l++)
-                for (int j = 0; j < 5; j++)
-                    new_b.belt_items[l][j] = -1.0f;
-
-            buildings[building_count++] = new_b;
-        }
-
-        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-            if (!remove_item_at_cursor(mouse_world, items, &item_count, tile_size)) {
-                remove_building_at_cursor(grid_x, grid_y, buildings, &building_count);
-            }
-        }
-
-        if (IsKeyPressed(KEY_R)) {
-            int rot_mod = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? ROT_CCW : ROT_CW;
-            if (current_building_idx != BUILDING_NONE) {
-                current_held_rotation = (current_held_rotation + rot_mod) % 360;
-            } else {
-                for (int i = 0; i < building_count; i++) {
-                    if (grid_x >= buildings[i].origin_x && grid_x < buildings[i].origin_x + buildings[i].size &&
-                        grid_y >= buildings[i].origin_y && grid_y < buildings[i].origin_y + buildings[i].size) {
-                            buildings[i].rotation = (buildings[i].rotation + rot_mod) % 360;
-                    }
-                }
-            }
-        }
-
-        if (IsKeyPressed(KEY_Q)) {
-            if (current_building_idx != BUILDING_NONE) {
-                current_building_idx = BUILDING_NONE;
-            } else {
-                for (int i = 0; i < building_count; i++) {
-                    if (grid_x >= buildings[i].origin_x && grid_x < buildings[i].origin_x + buildings[i].size &&
-                        grid_y >= buildings[i].origin_y && grid_y < buildings[i].origin_y + buildings[i].size) {
-                        current_building_idx = buildings[i].type_idx;
-                        break;
-                    }
-                }
-            }
-        }
+        handle_placement_input(state, preview, mouse_over_toolbar, tile_size);
+        handle_removal_input(state, mouse_world, grid_x, grid_y, tile_size);
+        handle_rotation_input(state, grid_x, grid_y);
+        handle_pickup_input(state, grid_x, grid_y);
 
         BeginDrawing();
         ClearBackground((Color){ 20, 20, 20, 255 });
 
-        BeginMode2D(camera);
+        BeginMode2D(state->camera);
 
-        Vector2 screen_top_left = GetScreenToWorld2D((Vector2){ 0, 0 }, camera);
-        Vector2 screen_bottom_right = GetScreenToWorld2D((Vector2){ screen_width, screen_height }, camera);
-        int start_x = (int)floorf(screen_top_left.x / tile_size) - 1;
-        int end_x = (int)floorf(screen_bottom_right.x / tile_size) + 1;
-        int start_y = (int)floorf(screen_top_left.y / tile_size) - 1;
-        int end_y = (int)floorf(screen_bottom_right.y / tile_size) + 1;
-
-        for (int x = start_x; x <= end_x; x++) DrawLine(x * tile_size, start_y * tile_size, x * tile_size, end_y * tile_size, (Color){ 45, 45, 45, 255 });
-        for (int y = start_y; y <= end_y; y++) DrawLine(start_x * tile_size, y * tile_size, end_x * tile_size, y * tile_size, (Color){ 45, 45, 45, 255 });
-
-        for (int i = 0; i < building_count; i++) {
-            draw_building_base(
-                buildings[i].origin_x,
-                buildings[i].origin_y,
-                buildings[i].size,
-                buildings[i].rotation,
-                tile_size,
-                BUILDING_TYPES[buildings[i].type_idx].color
-            );
-        }
-
-        for (int i = 0; i < building_count; i++) {
-            draw_building_overlay(
-                buildings[i].type_idx,
-                buildings[i].origin_x,
-                buildings[i].origin_y,
-                buildings[i].size,
-                buildings[i].rotation,
-                tile_size,
-                buildings,
-                building_count,
-                buildings[i].progress,
-                buildings[i].output_type,
-                false
-            );
-        }
-
-        for (int i = 0; i < building_count; i++) {
-            if (buildings[i].type_idx == BUILDING_TRANSPORT_BELT) {
-                int in_rot = get_belt_input_rotation(&buildings[i], buildings, building_count);
-                int out_rot = buildings[i].rotation;
-                Vector2 tile_center = { (buildings[i].x + 0.5f) * tile_size, (buildings[i].y + 0.5f) * tile_size };
-
-                for (int l = 0; l < 2; l++) {
-                    float lane_offset = (l == 0) ? -0.25f : 0.25f;
-                    for (int j = 0; j < 5; j++) {
-                        float prog = buildings[i].belt_items[l][j];
-                        if (prog >= 0.0f) {
-                            Vector2 pos;
-                            if (in_rot == out_rot) {
-                                Vector2 dir = angle_to_dir(out_rot);
-                                Vector2 right = { -dir.y, dir.x };
-                                float p_offset = prog - 0.5f;
-                                pos = (Vector2){ tile_center.x + right.x * lane_offset * tile_size + dir.x * p_offset * tile_size, tile_center.y + right.y * lane_offset * tile_size + dir.y * p_offset * tile_size };
-                            } else {
-                                int rel_rot = (out_rot - in_rot + 360) % 360;
-                                bool is_clockwise = (rel_rot == ROT_CW);
-
-                                int idx = (in_rot / 90) % 4;
-                                if (!is_clockwise) idx = (idx + 1) % 4;
-                                static const float pivot_xs[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
-                                static const float pivot_ys[4] = { 1.0f, 1.0f, 0.0f, 0.0f };
-                                float pivot_x = pivot_xs[idx];
-                                float pivot_y = pivot_ys[idx];
-
-                                float r;
-                                if (is_clockwise) r = (l == 1) ? 0.25f * tile_size : 0.75f * tile_size;
-                                else r = (l == 0) ? 0.25f * tile_size : 0.75f * tile_size;
-
-                                float start_angle, end_angle;
-                                if (is_clockwise) {
-                                    start_angle = (in_rot == DIR_UP) ? 180.0f : (in_rot == DIR_RIGHT) ? 270.0f : (in_rot == DIR_DOWN) ? 0.0f : 90.0f;
-                                    end_angle = start_angle + 90.0f;
-                                } else {
-                                    start_angle = (in_rot == DIR_UP) ? 0.0f : (in_rot == DIR_RIGHT) ? 90.0f : (in_rot == DIR_DOWN) ? 180.0f : 270.0f;
-                                    end_angle = start_angle - 90.0f;
-                                }
-
-                                float a = start_angle + (end_angle - start_angle) * prog;
-
-                                Vector2 tile_top_left = { (float)buildings[i].x * tile_size, (float)buildings[i].y * tile_size };
-                                pos = (Vector2){ (tile_top_left.x + pivot_x * tile_size) + cosf(a * DEG2RAD) * r,
-                                                (tile_top_left.y + pivot_y * tile_size) + sinf(a * DEG2RAD) * r };
-                            }
-                            DrawCircleV(pos, tile_size * 0.125f, get_item_color(buildings[i].belt_item_types[l][j]));
-                        }
-                    }
-                }
-            }
-        }
-
-        for (int i = 0; i < item_count; i++) {
-            DrawCircleV((Vector2){ items[i].x, items[i].y }, tile_size * 0.125f, get_item_color(items[i].type));
-        }
-
-        if (!mouse_over_toolbar && current_building_idx != BUILDING_NONE) {
-            Color base = BUILDING_TYPES[current_building_idx].color;
-            Color tint = can_place ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
-            draw_building(current_building_idx, origin_x, origin_y, BUILDING_TYPES[current_building_idx].size, current_held_rotation, tile_size, tint, buildings, building_count, 0, current_drill_output_mode, true);
-        }
+        render_grid(state->camera, screen_width, screen_height, tile_size);
+        render_buildings_base(state->buildings, state->building_count, tile_size);
+        render_buildings_overlay(state->buildings, state->building_count, tile_size);
+        render_belt_items(state->buildings, state->building_count, tile_size);
+        render_ground_items(state->items, state->item_count, tile_size);
+        render_placement_ghost(state, preview, mouse_over_toolbar, tile_size);
 
         EndMode2D();
 
-        DrawText(TextFormat("Building Coord: (%d, %d)", grid_x, grid_y), 10, 10, 20, RAYWHITE);
-        DrawText(TextFormat("Total Buildings: %d", building_count), 10, 35, 20, GRAY);
-        DrawText(TextFormat("Zoom: %.2fx", camera.zoom), 10, 60, 20, GRAY);
-
-        float fps = (dt > 0.0f) ? (1.0f / dt) : 0.0f;
-        float ups = (dt > 0.0f) ? ((float)ticks_this_frame / dt) : 0.0f;
-        const char* perf_text = TextFormat("FPS/UPS = %.1f/%.1f", fps, ups);
-        DrawText(perf_text, screen_width - MeasureText(perf_text, 20) - 10, 10, 20, RAYWHITE);
-
-        int bar_w = 500;
-        int bar_h = 50;
-        int start_x_pos = (screen_width - bar_w) / 2;
-        int start_y_pos = screen_height - bar_h - 10;
-
-        int item_size = 40;
-        int slot_width = bar_w / 10;
-
-        DrawRectangle(start_x_pos, start_y_pos, bar_w, bar_h, (Color){ 30, 30, 30, 255 });
-
-        for (int i = 0; i < 10; i++) {
-            int x = start_x_pos + i * slot_width + (slot_width - item_size) / 2;
-            int y = start_y_pos + (bar_h - item_size) / 2;
-
-            if (BUILDING_TYPES[i].name != NULL) {
-                DrawRectangle(x, y, item_size, item_size, BUILDING_TYPES[i].color);
-            } else {
-                DrawRectangle(x, y, item_size, item_size, (Color){ 45, 45, 45, 255 });
-            }
-
-            if (i == current_building_idx) {
-                DrawRectangleLines(x - 2, y - 2, item_size + 4, item_size + 4, WHITE);
-
-                const char* held_name = BUILDING_TYPES[i].name;
-                int text_w = MeasureText(held_name, 14);
-                DrawText(held_name, x + item_size / 2 - text_w / 2, y - 16, 14, RAYWHITE);
-            }
-        }
+        render_hud(state, grid_x, grid_y, screen_width, dt, ticks_this_frame);
+        render_hotbar(state->current_building_idx, screen_width, screen_height);
 
         EndDrawing();
     }
 
     if (output_save_path != NULL) {
-        save_world(output_save_path, buildings, building_count, items, item_count, camera);
+        save_world(output_save_path, state);
     }
 
     CloseWindow();
+}
 
-cleanup:
-    free(buildings);
-    free(items);
+int main(int argc, char** argv) {
+    const int tile_size = 64;
+
+    game_state_t state = { 0 };
+    state.current_building_idx = BUILDING_NONE;
+    state.current_held_rotation = DIR_UP;
+    state.current_drill_output_mode = ITEM_IRON_ORE;
+    state.camera.zoom = 1.0f;
+
+    char* output_save_path = NULL;
+    int run_ticks = -1;
+    parse_args(argc, argv, &state, &output_save_path, &run_ticks);
+
+    if (run_ticks > 0) {
+        run_headless(&state, run_ticks, tile_size, output_save_path);
+    } else {
+        run_interactive(&state, tile_size, output_save_path);
+    }
+
+    free(state.buildings);
+    free(state.items);
 }
