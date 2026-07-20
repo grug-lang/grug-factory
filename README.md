@@ -26,6 +26,16 @@ build/grugtorio --input-save tests/belt-zigzag/save.grugtorio.json
 | `--output-save [.grugtorio.json path]` | Path to write a grugtorio save to on exit.  |
 | `--ticks [N]`                          | Number of ticks to simulate before exiting. |
 
+## 7 buildings
+
+- Electric mining drill
+- Transport belt
+- Inserter
+- Stone furnace
+- Assembling machine 1
+- Lab
+- Rocket silo
+
 ## 33 recipes
 
 | Item | Method | Ingredients |
