@@ -394,6 +394,41 @@ static void append_item(game_state_t* state, item_t item) {
     state->items[state->item_count++] = item;
 }
 
+static bool get_belt_transfer_info(building_t* source, building_t* target, int source_lane, building_t* buildings, int count, int* out_target_lane, float* out_entry_d) {
+    if (!target) return false;
+    
+    int source_in_rot = get_belt_input_rotation(source, buildings, count);
+    bool source_is_turning = (source_in_rot != source->rotation);
+    
+    int target_in_rot = get_belt_input_rotation(target, buildings, count);
+    bool target_is_turning = (target_in_rot != target->rotation);
+    
+    int rel_rot = (target->rotation - source->rotation + 360) % 360;
+    
+    int target_lane = source_lane;
+    float entry_d = 0.0f;
+
+    if (rel_rot != 0) {
+        if (!target_is_turning) {
+            if (rel_rot == ROT_CW) {
+                target_lane = 1;
+                entry_d = (source_lane == 0) ? (0.25f * BELT_LANE_LENGTH) : (0.75f * BELT_LANE_LENGTH);
+            } else if (rel_rot == ROT_CCW) {
+                target_lane = 0;
+                entry_d = (source_lane == 1) ? (0.25f * BELT_LANE_LENGTH) : (0.75f * BELT_LANE_LENGTH);
+            } else {
+                return false;
+            }
+        } else if (!source_is_turning && (rel_rot == ROT_CCW)) {
+            target_lane = !target_lane;
+        }
+    }
+    
+    *out_target_lane = target_lane;
+    *out_entry_d = entry_d;
+    return true;
+}
+
 static void advance_belt_lane(building_t* buildings, int building_count, int belt_idx, int lane) {
     building_t* belt = &buildings[belt_idx];
     float lane_len = get_belt_lane_length(belt, lane, buildings, building_count);
@@ -401,13 +436,23 @@ static void advance_belt_lane(building_t* buildings, int building_count, int bel
 
     float max_d_0 = lane_len;
     if (target_idx != -1) {
-        float target_lane_len = get_belt_lane_length(&buildings[target_idx], lane, buildings, building_count);
-        int target_last_j = find_last_occupied_slot(buildings[target_idx].belt_items[lane]);
-        if (target_last_j != -1) {
-            float d_target_last = buildings[target_idx].belt_items[lane][target_last_j] * target_lane_len;
-            max_d_0 = lane_len - (BELT_ITEM_SPACING - d_target_last);
-        } else {
-            max_d_0 = lane_len + BELT_ITEM_SPACING;
+        int target_lane;
+        float entry_d;
+        if (get_belt_transfer_info(belt, &buildings[target_idx], lane, buildings, building_count, &target_lane, &entry_d)) {
+            building_t* target = &buildings[target_idx];
+            float target_lane_len = get_belt_lane_length(target, target_lane, buildings, building_count);
+
+            if (entry_d == 0.0f) {
+                int target_last_j = find_last_occupied_slot(target->belt_items[target_lane]);
+                if (target_last_j != -1) {
+                    float d_target_last = target->belt_items[target_lane][target_last_j] * target_lane_len;
+                    max_d_0 = lane_len - (BELT_ITEM_SPACING - d_target_last);
+                } else {
+                    max_d_0 = lane_len + BELT_ITEM_SPACING;
+                }
+            } else {
+                max_d_0 = lane_len;
+            }
         }
     }
 
@@ -435,47 +480,78 @@ static void transfer_belt_lane(building_t* buildings, int building_count, int be
         return;
     }
 
-    float lane_len = get_belt_lane_length(belt, lane, buildings, building_count);
-
-    int source_in_rot = get_belt_input_rotation(belt, buildings, building_count);
-    bool source_is_turning = (source_in_rot != belt->rotation);
-
-    building_t* target = &buildings[target_idx];
-    int target_in_rot = get_belt_input_rotation(target, buildings, building_count);
-    bool target_is_turning = (target_in_rot != target->rotation);
-
-    int target_lane = lane;
-    int rel_rot = (target->rotation - belt->rotation + 360) % 360;
-    if (!source_is_turning && !target_is_turning && (rel_rot == ROT_CCW)) {
-        target_lane = !target_lane;
+    int target_lane;
+    float entry_d;
+    if (!get_belt_transfer_info(belt, &buildings[target_idx], lane, buildings, building_count, &target_lane, &entry_d)) {
+        belt->belt_items[lane][0] = 1.0f;
+        return;
     }
 
+    building_t* target = &buildings[target_idx];
     float target_lane_len = get_belt_lane_length(target, target_lane, buildings, building_count);
-    int target_last_j = find_last_occupied_slot(target->belt_items[target_lane]);
+    float lane_len = get_belt_lane_length(belt, lane, buildings, building_count);
 
     float excess_d = (belt->belt_items[lane][0] * lane_len) - lane_len;
     if (excess_d < 0.0f) excess_d = 0.0f;
 
+    float start_d_target = entry_d + excess_d;
     bool can_transfer = false;
-    float start_d_target = excess_d;
+    int insert_j = -1;
 
-    if (target_last_j == -1) {
-        can_transfer = true;
+    if (entry_d == 0.0f) {
+        int target_last_j = find_last_occupied_slot(target->belt_items[target_lane]);
+        if (target_last_j == -1) {
+            can_transfer = true;
+            insert_j = 0;
+        } else {
+            float d_target_last = target->belt_items[target_lane][target_last_j] * target_lane_len;
+            if (d_target_last >= BELT_ITEM_SPACING) {
+                can_transfer = (target_last_j < MAX_BELT_SLOTS - 1);
+                if (start_d_target > d_target_last - BELT_ITEM_SPACING) {
+                    start_d_target = d_target_last - BELT_ITEM_SPACING;
+                }
+                insert_j = target_last_j + 1;
+            }
+        }
     } else {
-        float d_target_last = target->belt_items[target_lane][target_last_j] * target_lane_len;
-        if (d_target_last >= BELT_ITEM_SPACING) {
-            can_transfer = (target_last_j < MAX_BELT_SLOTS - 1);
-            if (start_d_target > d_target_last - BELT_ITEM_SPACING) {
-                start_d_target = d_target_last - BELT_ITEM_SPACING;
+        can_transfer = true;
+        int occupied = 0;
+        for (int j = 0; j < MAX_BELT_SLOTS; j++) {
+            if (target->belt_items[target_lane][j] >= 0.0f) {
+                occupied++;
+                float d = target->belt_items[target_lane][j] * target_lane_len;
+                if (fabsf(d - start_d_target) < BELT_ITEM_SPACING - 0.1f) {
+                    can_transfer = false;
+                    break;
+                }
+            }
+        }
+        if (occupied >= MAX_BELT_SLOTS) can_transfer = false;
+
+        if (can_transfer) {
+            insert_j = 0;
+            while (insert_j < MAX_BELT_SLOTS && target->belt_items[target_lane][insert_j] >= 0.0f) {
+                float d = target->belt_items[target_lane][insert_j] * target_lane_len;
+                if (d < start_d_target) {
+                    break;
+                }
+                insert_j++;
             }
         }
     }
 
-    if (!can_transfer) return;
+    if (!can_transfer) {
+        belt->belt_items[lane][0] = 1.0f;
+        return;
+    }
 
-    int new_j = target_last_j + 1;
-    target->belt_items[target_lane][new_j] = start_d_target / target_lane_len;
-    target->belt_item_types[target_lane][new_j] = belt->belt_item_types[lane][0];
+    for (int j = MAX_BELT_SLOTS - 1; j > insert_j; j--) {
+        target->belt_items[target_lane][j] = target->belt_items[target_lane][j - 1];
+        target->belt_item_types[target_lane][j] = target->belt_item_types[target_lane][j - 1];
+    }
+
+    target->belt_items[target_lane][insert_j] = start_d_target / target_lane_len;
+    target->belt_item_types[target_lane][insert_j] = belt->belt_item_types[lane][0];
 
     for (int j = 0; j < MAX_BELT_SLOTS - 1; j++) {
         belt->belt_items[lane][j] = belt->belt_items[lane][j + 1];
