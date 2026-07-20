@@ -396,15 +396,15 @@ static void append_item(game_state_t* state, item_t item) {
 
 static bool get_belt_transfer_info(building_t* source, building_t* target, int source_lane, building_t* buildings, int count, int* out_target_lane, float* out_entry_d) {
     if (!target) return false;
-    
+
     int source_in_rot = get_belt_input_rotation(source, buildings, count);
     bool source_is_turning = (source_in_rot != source->rotation);
-    
+
     int target_in_rot = get_belt_input_rotation(target, buildings, count);
     bool target_is_turning = (target_in_rot != target->rotation);
-    
+
     int rel_rot = (target->rotation - source->rotation + 360) % 360;
-    
+
     int target_lane = source_lane;
     float entry_d = 0.0f;
 
@@ -423,7 +423,7 @@ static bool get_belt_transfer_info(building_t* source, building_t* target, int s
             target_lane = !target_lane;
         }
     }
-    
+
     *out_target_lane = target_lane;
     *out_entry_d = entry_d;
     return true;
@@ -514,11 +514,29 @@ static void transfer_belt_lane(building_t* buildings, int building_count, int be
             }
         }
     } else {
-        can_transfer = true;
         int occupied = 0;
+
         for (int j = 0; j < MAX_BELT_SLOTS; j++) {
             if (target->belt_items[target_lane][j] >= 0.0f) {
                 occupied++;
+            }
+        }
+
+        int rel_rot = (target->rotation - belt->rotation + 360) % 360;
+        bool uses_factorio_third_item_entry = occupied == 2 && rel_rot == ROT_CW;
+
+        if (uses_factorio_third_item_entry) {
+            start_d_target = 0.5f * BELT_LANE_LENGTH;
+        }
+
+        can_transfer = (occupied < MAX_BELT_SLOTS);
+
+        if (can_transfer) {
+            for (int j = 0; j < MAX_BELT_SLOTS; j++) {
+                if (target->belt_items[target_lane][j] < 0.0f) {
+                    continue;
+                }
+
                 float d = target->belt_items[target_lane][j] * target_lane_len;
                 if (fabsf(d - start_d_target) < BELT_ITEM_SPACING - 0.1f) {
                     can_transfer = false;
@@ -526,7 +544,6 @@ static void transfer_belt_lane(building_t* buildings, int building_count, int be
                 }
             }
         }
-        if (occupied >= MAX_BELT_SLOTS) can_transfer = false;
 
         if (can_transfer) {
             insert_j = 0;
@@ -557,6 +574,7 @@ static void transfer_belt_lane(building_t* buildings, int building_count, int be
         belt->belt_items[lane][j] = belt->belt_items[lane][j + 1];
         belt->belt_item_types[lane][j] = belt->belt_item_types[lane][j + 1];
     }
+
     belt->belt_items[lane][MAX_BELT_SLOTS - 1] = -1.0f;
 }
 
