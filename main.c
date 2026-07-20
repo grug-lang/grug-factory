@@ -41,10 +41,10 @@ typedef enum {
 } item_type_e;
 
 typedef enum {
-    DIR_UP = 0,
-    DIR_RIGHT = 90,
-    DIR_DOWN = 180,
-    DIR_LEFT = 270
+    DIR_NORTH = 0,
+    DIR_EAST = 90,
+    DIR_SOUTH = 180,
+    DIR_WEST = 270
 } direction_e;
 
 typedef enum {
@@ -715,10 +715,10 @@ static Vector2 compute_belt_item_position(building_t* belt, building_t* building
 
     float start_angle, end_angle;
     if (is_clockwise) {
-        start_angle = (in_rot == DIR_UP) ? 180.0f : (in_rot == DIR_RIGHT) ? 270.0f : (in_rot == DIR_DOWN) ? 0.0f : 90.0f;
+        start_angle = (in_rot == DIR_NORTH) ? 180.0f : (in_rot == DIR_EAST) ? 270.0f : (in_rot == DIR_SOUTH) ? 0.0f : 90.0f;
         end_angle = start_angle + 90.0f;
     } else {
-        start_angle = (in_rot == DIR_UP) ? 0.0f : (in_rot == DIR_RIGHT) ? 90.0f : (in_rot == DIR_DOWN) ? 180.0f : 270.0f;
+        start_angle = (in_rot == DIR_NORTH) ? 0.0f : (in_rot == DIR_EAST) ? 90.0f : (in_rot == DIR_SOUTH) ? 180.0f : 270.0f;
         end_angle = start_angle - 90.0f;
     }
 
@@ -1132,7 +1132,7 @@ int main(int argc, char** argv) {
 
     game_state_t state = { 0 };
     state.current_building_idx = BUILDING_NONE;
-    state.current_held_rotation = DIR_UP;
+    state.current_held_rotation = DIR_NORTH;
     state.current_drill_output_mode = ITEM_IRON_ORE;
     state.camera.zoom = 1.0f;
 
