@@ -5,6 +5,7 @@
 	"camera_offset_x":	1280,
 	"camera_offset_y":	720,
 	"camera_zoom":	1.5,
+	"speed_idx": 2,
 	"buildings":	[{
 			"x":	2,
 			"y":	-2,
@@ -15,7 +16,7 @@
 			"rotation":	180,
 			"progress":	0,
 			"output_type":	0,
-			"belt_items":	[-1, -1, -1, -1, -1, 0.555345892906189, -1, -1, -1, -1],
+			"belt_items":	[-1, -1, -1, -1, -1, 0.837106943130493, -1, -1, -1, -1],
 			"belt_item_types":	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 		}, {
 			"x":	1,

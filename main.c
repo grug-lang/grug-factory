@@ -12,7 +12,6 @@
 #define UPS 60.0
 #define UPDATE_DT_MS (1000.0 / UPS)
 #define MAX_ACCUMULATED_MS 250.0
-#define MAX_TICKS_PER_FRAME 5
 
 #define BELT_LANE_COUNT 2
 #define MAX_BELT_SLOTS 5
@@ -23,6 +22,24 @@
 #define DRILL_CYCLE_TICKS 120
 #define TOOLBAR_SLOT_COUNT 10
 #define ITEM_RADIUS_FACTOR 0.125f
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+static const float SPEED_STEPS[] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f, 64.0f };
+
+static const char* get_speed_string(float speed) {
+    static char buf[32];
+
+    if (speed < 1.0f) {
+        int denom = (int)roundf(1.0f / speed);
+        snprintf(buf, sizeof(buf), "/ %d", denom);
+    } else {
+        int num = (int)roundf(speed);
+        snprintf(buf, sizeof(buf), "x %d", num);
+    }
+
+    return buf;
+}
 
 typedef enum {
     BUILDING_NONE = -1,
@@ -103,6 +120,9 @@ typedef struct {
     int current_held_rotation;
     item_type_e current_drill_output_mode;
     bool paused;
+    int speed_idx;
+    double simulated_time;
+    long long ticks;
 } game_state_t;
 
 typedef struct {
@@ -199,6 +219,7 @@ static void save_world(const char* path, game_state_t* state) {
     cJSON_AddNumberToObject(root, "camera_offset_x", state->camera.offset.x);
     cJSON_AddNumberToObject(root, "camera_offset_y", state->camera.offset.y);
     cJSON_AddNumberToObject(root, "camera_zoom", state->camera.zoom);
+    cJSON_AddNumberToObject(root, "speed_idx", state->speed_idx);
 
     cJSON* b_array = cJSON_CreateArray();
     for (int i = 0; i < state->building_count; i++) {
@@ -264,6 +285,9 @@ static void load_world(const char* path, game_state_t* state) {
     json_get_float_opt(root, "camera_offset_x", &state->camera.offset.x);
     json_get_float_opt(root, "camera_offset_y", &state->camera.offset.y);
     json_get_float_opt(root, "camera_zoom", &state->camera.zoom);
+
+    cJSON* speed_item = cJSON_GetObjectItem(root, "speed_idx");
+    if (speed_item) state->speed_idx = speed_item->valueint;
 
     cJSON* b_array = cJSON_GetObjectItem(root, "buildings");
     int count = cJSON_GetArraySize(b_array);
@@ -639,6 +663,9 @@ static void run_drill(game_state_t* state, int drill_idx, int tile_size) {
 }
 
 static void game_logic_tick(game_state_t* state, int tile_size) {
+    state->simulated_time += 1.0 / UPS;
+    state->ticks++;
+
     for (int i = 0; i < state->building_count; i++) {
         if (state->buildings[i].type_idx != BUILDING_TRANSPORT_BELT) continue;
         for (int l = 0; l < BELT_LANE_COUNT; l++) {
@@ -751,7 +778,7 @@ static void draw_clipped_chevron(Vector2 tip, float arm_length, float angle_deg,
     }
 }
 
-static void draw_building_overlay(building_type_e type_idx, int origin_x, int origin_y, int size, int rotation, int tile_size, building_t* buildings, int building_count, int progress, item_type_e output_type, bool draw_overlay) {
+static void draw_building_overlay(building_type_e type_idx, int origin_x, int origin_y, int size, int rotation, int tile_size, building_t* buildings, int building_count, int progress, item_type_e output_type, bool draw_overlay, double simulated_time) {
     Vector2 dir = angle_to_dir((float)rotation);
     float origin_px_x = (float)origin_x * tile_size;
     float origin_px_y = (float)origin_y * tile_size;
@@ -778,7 +805,7 @@ static void draw_building_overlay(building_type_e type_idx, int origin_x, int or
 
         bool has_feeder = has_belt_feeding_from(origin_x, origin_y, input_rot, buildings, building_count);
 
-        float time_sec = (float)GetTime();
+        float time_sec = (float)simulated_time;
         float xmin = origin_px_x;
         float xmax = origin_px_x + tile_size;
         float ymin = origin_px_y;
@@ -837,9 +864,9 @@ static void draw_building_overlay(building_type_e type_idx, int origin_x, int or
     }
 }
 
-static void draw_building(building_type_e type_idx, int origin_x, int origin_y, int size, int rotation, int tile_size, Color color, building_t* buildings, int building_count, int progress, item_type_e output_type, bool draw_overlay) {
+static void draw_building(building_type_e type_idx, int origin_x, int origin_y, int size, int rotation, int tile_size, Color color, building_t* buildings, int building_count, int progress, item_type_e output_type, bool draw_overlay, double simulated_time) {
     draw_building_base(origin_x, origin_y, size, rotation, tile_size, color);
-    draw_building_overlay(type_idx, origin_x, origin_y, size, rotation, tile_size, buildings, building_count, progress, output_type, draw_overlay);
+    draw_building_overlay(type_idx, origin_x, origin_y, size, rotation, tile_size, buildings, building_count, progress, output_type, draw_overlay, simulated_time);
 }
 
 static Vector2 compute_belt_item_position(building_t* belt, building_t* buildings, int building_count, int lane, float prog, int tile_size) {
@@ -909,9 +936,9 @@ static void render_buildings_base(building_t* buildings, int count, int tile_siz
     }
 }
 
-static void render_buildings_overlay(building_t* buildings, int count, int tile_size) {
+static void render_buildings_overlay(building_t* buildings, int count, int tile_size, double simulated_time) {
     for (int i = 0; i < count; i++) {
-        draw_building_overlay(buildings[i].type_idx, buildings[i].origin_x, buildings[i].origin_y, buildings[i].size, buildings[i].rotation, tile_size, buildings, count, buildings[i].progress, buildings[i].output_type, false);
+        draw_building_overlay(buildings[i].type_idx, buildings[i].origin_x, buildings[i].origin_y, buildings[i].size, buildings[i].rotation, tile_size, buildings, count, buildings[i].progress, buildings[i].output_type, false, simulated_time);
     }
 }
 
@@ -942,18 +969,40 @@ static void render_placement_ghost(game_state_t* state, placement_preview_t prev
 
     Color base = BUILDING_TYPES[state->current_building_idx].color;
     Color tint = preview.can_place ? (Color){ base.r, base.g, base.b, 150 } : (Color){ 255, 0, 0, 150 };
-    draw_building(state->current_building_idx, preview.origin_x, preview.origin_y, BUILDING_TYPES[state->current_building_idx].size, state->current_held_rotation, tile_size, tint, state->buildings, state->building_count, 0, state->current_drill_output_mode, true);
+    draw_building(state->current_building_idx, preview.origin_x, preview.origin_y, BUILDING_TYPES[state->current_building_idx].size, state->current_held_rotation, tile_size, tint, state->buildings, state->building_count, 0, state->current_drill_output_mode, true, state->simulated_time);
 }
 
 static void render_hud(game_state_t* state, int grid_x, int grid_y, int screen_width, float dt, int ticks_this_frame) {
-    DrawText(TextFormat("Building Coord: (%d, %d)", grid_x, grid_y), 10, 10, 20, RAYWHITE);
-    DrawText(TextFormat("Total Buildings: %d", state->building_count), 10, 35, 20, GRAY);
-    DrawText(TextFormat("Zoom: %.2fx", state->camera.zoom), 10, 60, 20, GRAY);
+    #define UPS_WINDOW_SIZE 4
+    static int tick_history[UPS_WINDOW_SIZE] = {0};
+    static float dt_history[UPS_WINDOW_SIZE] = {0.0f};
+    static int history_idx = 0;
+    static int history_count = 0;
 
+    tick_history[history_idx] = ticks_this_frame;
+    dt_history[history_idx] = dt;
+    history_idx = (history_idx + 1) % UPS_WINDOW_SIZE;
+    if (history_count < UPS_WINDOW_SIZE) {
+        history_count++;
+    }
+
+    int total_ticks = 0;
+    float total_dt = 0.0f;
+    for (int i = 0; i < history_count; i++) {
+        total_ticks += tick_history[i];
+        total_dt += dt_history[i];
+    }
+
+    float smoothed_ups = (total_dt > 0.0f) ? ((float)total_ticks / total_dt) : 0.0f;
     float fps = (dt > 0.0f) ? (1.0f / dt) : 0.0f;
-    float ups = (dt > 0.0f) ? ((float)ticks_this_frame / dt) : 0.0f;
-    const char* perf_text = TextFormat("FPS/UPS = %.1f/%.1f", fps, ups);
-    DrawText(perf_text, screen_width - MeasureText(perf_text, 20) - 10, 10, 20, RAYWHITE);
+
+    DrawText(TextFormat("Building Coord: (%d, %d)", grid_x, grid_y), 10, 10, 20, GRAY);
+    DrawText(TextFormat("Zoom: %.2fx", state->camera.zoom), 10, 35, 20, GRAY);
+    DrawText(TextFormat("Game Speed: %s", get_speed_string(SPEED_STEPS[state->speed_idx])), 10, 60, 20, GRAY);
+    DrawText(TextFormat("Tick: %lld", state->ticks), 10, 85, 20, GRAY);
+
+    const char* perf_text = TextFormat("FPS/UPS = %.1f/%.1f", fps, smoothed_ups);
+    DrawText(perf_text, screen_width - MeasureText(perf_text, 20) - 10, 10, 20, GRAY);
 }
 
 static void render_hotbar(building_type_e current_building_idx, int screen_width, int screen_height) {
@@ -1188,6 +1237,19 @@ static void handle_output_mode_toggle(game_state_t* state) {
     }
 }
 
+static void handle_speed_input(game_state_t* state) {
+    if (IsKeyPressed(KEY_KP_ADD) || IsKeyPressed(KEY_EQUAL)) {
+        if (state->speed_idx < (int)ARRAY_SIZE(SPEED_STEPS) - 1) {
+            state->speed_idx++;
+        }
+    }
+    if (IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressed(KEY_MINUS)) {
+        if (state->speed_idx > 0) {
+            state->speed_idx--;
+        }
+    }
+}
+
 static void handle_camera_pan(game_state_t* state, float dt) {
     float move_speed = 500.0f / state->camera.zoom * dt;
     if (IsKeyDown(KEY_W)) state->camera.target.y -= move_speed;
@@ -1275,15 +1337,21 @@ static void run_interactive(game_state_t* state, int tile_size, const char* outp
             state->paused = !state->paused;
         }
 
+        handle_speed_input(state);
+
         int ticks_this_frame = 0;
         if (!state->paused) {
-            accumulator += elapsed;
+            accumulator += elapsed * SPEED_STEPS[state->speed_idx];
+
+            int max_ticks_this_frame = (int)(SPEED_STEPS[state->speed_idx] * 8.0f);
+            if (max_ticks_this_frame < 5) max_ticks_this_frame = 5;
+
             while (accumulator >= UPDATE_DT_MS) {
                 game_logic_tick(state, tile_size);
                 accumulator -= UPDATE_DT_MS;
                 ticks_this_frame++;
-                if (ticks_this_frame >= MAX_TICKS_PER_FRAME) {
-                    accumulator = 0.0;
+
+                if (ticks_this_frame >= max_ticks_this_frame) {
                     break;
                 }
             }
@@ -1316,7 +1384,7 @@ static void run_interactive(game_state_t* state, int tile_size, const char* outp
 
         render_grid(state->camera, screen_width, screen_height, tile_size);
         render_buildings_base(state->buildings, state->building_count, tile_size);
-        render_buildings_overlay(state->buildings, state->building_count, tile_size);
+        render_buildings_overlay(state->buildings, state->building_count, tile_size, state->simulated_time);
         render_belt_items(state->buildings, state->building_count, tile_size);
         render_ground_items(state->items, state->item_count, tile_size);
         render_placement_ghost(state, preview, mouse_over_toolbar, tile_size);
@@ -1351,6 +1419,7 @@ int main(int argc, char** argv) {
     state.current_drill_output_mode = ITEM_IRON_ORE;
     state.camera.zoom = 1.0f;
     state.paused = false;
+    state.speed_idx = 2;
 
     char* output_save_path = NULL;
     int run_ticks = -1;

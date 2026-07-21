@@ -88,8 +88,6 @@ You can also run tests with Valgrind by setting the `TEST_RUNNER` environment va
 TEST_RUNNER="valgrind --leak-check=full" python tests.py
 ```
 
-The `tests` directory its tests contain `TODO.md` files whenever their behavior is known to not match Factorio _yet_.
-
 ## Running with valgrind
 
 ```sh
