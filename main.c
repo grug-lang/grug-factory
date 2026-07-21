@@ -422,9 +422,6 @@ static void append_item(game_state_t* state, item_t item) {
 static bool get_belt_transfer_info(building_t* source, building_t* target, int source_lane, building_t* buildings, int count, int* out_target_lane, float* out_entry_d) {
     if (!target) return false;
 
-    int source_in_rot = get_belt_input_rotation(source, buildings, count);
-    bool source_is_turning = (source_in_rot != source->rotation);
-
     int target_in_rot = get_belt_input_rotation(target, buildings, count);
     bool target_is_turning = (target_in_rot != target->rotation);
 
@@ -433,19 +430,15 @@ static bool get_belt_transfer_info(building_t* source, building_t* target, int s
     int target_lane = source_lane;
     float entry_d = 0.0f;
 
-    if (rel_rot != 0) {
-        if (!target_is_turning) {
-            if (rel_rot == ROT_CW) {
-                target_lane = 1;
-                entry_d = (source_lane == 0) ? (0.25f * BELT_LANE_LENGTH) : (0.75f * BELT_LANE_LENGTH);
-            } else if (rel_rot == ROT_CCW) {
-                target_lane = 0;
-                entry_d = (source_lane == 1) ? (0.25f * BELT_LANE_LENGTH) : (0.75f * BELT_LANE_LENGTH);
-            } else {
-                return false;
-            }
-        } else if (!source_is_turning && (rel_rot == ROT_CCW)) {
-            target_lane = !target_lane;
+    if (rel_rot != 0 && !target_is_turning) {
+        if (rel_rot == ROT_CW) {
+            target_lane = 1;
+            entry_d = (source_lane == 0) ? (0.25f * BELT_LANE_LENGTH) : (0.75f * BELT_LANE_LENGTH);
+        } else if (rel_rot == ROT_CCW) {
+            target_lane = 0;
+            entry_d = (source_lane == 1) ? (0.25f * BELT_LANE_LENGTH) : (0.75f * BELT_LANE_LENGTH);
+        } else {
+            return false;
         }
     }
 
