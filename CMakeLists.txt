@@ -3,6 +3,10 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 project(GrugFactory C)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 option(ENABLE_ASAN "Enable AddressSanitizer and UBSan" OFF)
 
 set(CMAKE_C_STANDARD 11)
@@ -37,7 +41,11 @@ add_custom_target(
 
 add_executable(grugtorio main.c cJSON.c)
 
-target_compile_options(grugtorio PRIVATE -Wall -Wextra -Werror -Wpedantic -g)
+target_compile_options(grugtorio PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+target_compile_options(grugtorio PRIVATE
+    $<$<CONFIG:Debug>:-g>
+)
 
 if(ENABLE_ASAN)
     message(STATUS "AddressSanitizer and UBSan are ENABLED")
